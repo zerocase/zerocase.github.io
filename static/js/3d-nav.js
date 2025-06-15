@@ -1,4 +1,4 @@
-// 3D Navigation JavaScript
+// 3D Navigation JavaScript with Touch and Gyroscope Support
 document.addEventListener('DOMContentLoaded', function() {
     // Find all nav containers and initialize them
     const containers = document.querySelectorAll('.nav-3d-container');
@@ -14,7 +14,9 @@ function initNav3D(container) {
     
     const size = container.dataset.size || 'medium';
     const autoRotate = container.dataset.autoRotate === 'true';
+    const gyroEnabled = container.dataset.gyro !== 'false'; // Default to true unless explicitly disabled
     const isLarge = size === 'large';
+    const isMedium = size === 'medium';
     
     // Wait a moment for container to be properly sized
     setTimeout(() => {
@@ -110,19 +112,230 @@ function initNav3D(container) {
         const points = new THREE.Points(pointGeometry, pointMaterial);
         scene.add(points);
 
+        // Add center cube (only for medium version)
+        let cube = null;
+        let cubeOutline = null;
+        if (isMedium) {
+            // Create cube geometry - make it bigger and more visible
+            const cubeSize = 2.0 * scale; // Increased from 1.2
+            const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+            
+            // Create semi-transparent cube material
+            const cubeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4488ff,
+                transparent: true,
+                opacity: 0.5,
+                side: THREE.DoubleSide
+            });
+            
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(0, 0, 0); // Explicitly set position at center
+            scene.add(cube);
+            
+            // Create cube outline
+            const cubeOutlineGeometry = new THREE.EdgesGeometry(cubeGeometry);
+            const cubeOutlineMaterial = new THREE.LineBasicMaterial({
+                color: 0x88aaff,
+                transparent: true,
+                opacity: 0.8,
+                linewidth: 2 // Make lines thicker
+            });
+            
+            cubeOutline = new THREE.LineSegments(cubeOutlineGeometry, cubeOutlineMaterial);
+            cubeOutline.position.set(0, 0, 0); // Explicitly set position at center
+            scene.add(cubeOutline);
+        }
+
         // Position camera - closer for smaller versions
         const cameraDistance = isLarge ? 15 : (size === 'medium' ? 13 : 10);
         camera.position.set(0, 10, cameraDistance);
         camera.lookAt(0, 0, 0);
 
-        // Mouse interaction
+        // Interaction variables
         let mouseX = 0, mouseY = 0, targetRotationX = 0, targetRotationY = 0;
         let shouldAutoRotate = autoRotate;
         let lastInteraction = Date.now();
+        let isHoveringCube = false;
+        
+        // Touch interaction variables
+        let isDragging = false;
+        let previousTouchX = 0;
+        let previousTouchY = 0;
+        let touchStartTime = 0;
+
+        // Gyroscope variables
+        let gyroSupported = false;
+        let gyroPermissionGranted = false;
+        let gyroActive = false;
+        let baseAlpha = null; // Initial orientation
+        let baseBeta = null;
+        let baseGamma = null;
+        
+        // Gyroscope sensitivity (lower = more sensitive)
+        const gyroSensitivity = {
+            alpha: 0.002, // Rotation around Z-axis (compass)
+            beta: 0.003,  // Rotation around X-axis (front-to-back tilt)
+            gamma: 0.003  // Rotation around Y-axis (left-to-right tilt)
+        };
+
+        // Raycaster for cube interaction (only for medium version)
+        let raycaster = null;
+        let mouse = new THREE.Vector2();
+        
+        if (isMedium) {
+            raycaster = new THREE.Raycaster();
+        }
+
+        // Check if gyroscope is supported and request permission
+        const initGyroscope = async () => {
+            if (!gyroEnabled) return;
+            
+            // Check if DeviceOrientationEvent is supported
+            if (typeof DeviceOrientationEvent !== 'undefined') {
+                gyroSupported = true;
+                
+                // For iOS 13+ we need to request permission
+                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try {
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission === 'granted') {
+                            gyroPermissionGranted = true;
+                            setupGyroscope();
+                        }
+                    } catch (error) {
+                        console.log('Gyroscope permission denied or error:', error);
+                    }
+                } else {
+                    // Android or older iOS - permission not required
+                    gyroPermissionGranted = true;
+                    setupGyroscope();
+                }
+            }
+        };
+
+        const setupGyroscope = () => {
+            if (!gyroSupported || !gyroPermissionGranted) return;
+            
+            // Add a small delay to avoid permission popup during page load
+            setTimeout(() => {
+                window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+                
+                // Add visual indicator for gyroscope
+                if (container.querySelector('.gyro-indicator')) return;
+                
+                const gyroIndicator = document.createElement('div');
+                gyroIndicator.className = 'gyro-indicator';
+                gyroIndicator.textContent = 'Tilt device to rotate';
+                gyroIndicator.style.cssText = `
+                    position: absolute;
+                    bottom: 5px;
+                    left: 5px;
+                    font-size: 0.6rem;
+                    color: rgba(255,255,255,0.3);
+                    pointer-events: none;
+                    z-index: 15;
+                    transition: opacity 0.3s ease;
+                `;
+                container.appendChild(gyroIndicator);
+                
+                // Hide indicator after a few seconds
+                setTimeout(() => {
+                    gyroIndicator.style.opacity = '0';
+                }, 5000);
+            }, 1000);
+        };
+
+        const handleDeviceOrientation = (event) => {
+            if (!gyroActive && event.alpha !== null && event.beta !== null && event.gamma !== null) {
+                // Set baseline orientation on first reading
+                baseAlpha = event.alpha;
+                baseBeta = event.beta;
+                baseGamma = event.gamma;
+                gyroActive = true;
+                return;
+            }
+            
+            if (!gyroActive || baseAlpha === null) return;
+            
+            // Calculate relative orientation changes
+            let deltaAlpha = event.alpha - baseAlpha;
+            let deltaBeta = event.beta - baseBeta;
+            let deltaGamma = event.gamma - baseGamma;
+            
+            // Handle 360-degree wrap-around for alpha
+            if (deltaAlpha > 180) deltaAlpha -= 360;
+            if (deltaAlpha < -180) deltaAlpha += 360;
+            
+            // Apply gyroscope rotation (subtle effect)
+            const gyroRotationY = deltaAlpha * gyroSensitivity.alpha + deltaGamma * gyroSensitivity.gamma;
+            const gyroRotationX = deltaBeta * gyroSensitivity.beta;
+            
+            // Combine with existing target rotation (mouse/touch has priority)
+            if (Date.now() - lastInteraction > 1000) { // Only use gyro if no recent touch/mouse
+                targetRotationY = gyroRotationY;
+                targetRotationX = gyroRotationX;
+                shouldAutoRotate = false;
+            }
+        };
+
+        // Initialize gyroscope (but don't request permission immediately)
+        if (gyroEnabled && /Mobi|Android/i.test(navigator.userAgent)) {
+            // Only try to enable gyroscope on mobile devices
+            initGyroscope();
+        }
 
         // Add mouse interaction for all sizes
         const interactionElement = isLarge ? document : canvasContainer;
         
+        const updateRotationFromCoordinates = (x, y) => {
+            targetRotationY = x * Math.PI * 0.3;
+            targetRotationX = y * Math.PI * 0.1;
+            shouldAutoRotate = false;
+            lastInteraction = Date.now();
+            
+            // Reset gyroscope baseline when user interacts
+            if (gyroActive) {
+                gyroActive = false;
+                setTimeout(() => {
+                    if (Date.now() - lastInteraction > 2000) {
+                        gyroActive = false; // Will re-baseline on next gyro event
+                    }
+                }, 2000);
+            }
+        };
+
+        const checkCubeHover = (x, y) => {
+            if (isMedium && raycaster && cube) {
+                mouse.x = x;
+                mouse.y = y;
+                
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(cube);
+                
+                if (intersects.length > 0) {
+                    if (!isHoveringCube) {
+                        isHoveringCube = true;
+                        canvasContainer.style.cursor = 'pointer';
+                        // Add glow effect
+                        cube.material.opacity = 0.8;
+                        cube.material.color.setHex(0x66aaff);
+                        cubeOutline.material.opacity = 1;
+                        cubeOutline.material.color.setHex(0xaaccff);
+                    }
+                } else {
+                    if (isHoveringCube) {
+                        isHoveringCube = false;
+                        canvasContainer.style.cursor = 'default';
+                        // Remove glow effect
+                        cube.material.opacity = 0.5;
+                        cube.material.color.setHex(0x4488ff);
+                        cubeOutline.material.opacity = 0.8;
+                        cubeOutline.material.color.setHex(0x88aaff);
+                    }
+                }
+            }
+        };
+
         const handleMouseMove = (event) => {
             if (isLarge) {
                 mouseX = (event.clientX / window.innerWidth) * 2 - 1;
@@ -133,13 +346,101 @@ function initNav3D(container) {
                 mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
             }
             
-            targetRotationY = mouseX * Math.PI * 0.3;
-            targetRotationX = mouseY * Math.PI * 0.1;
-            shouldAutoRotate = false;
-            lastInteraction = Date.now();
+            checkCubeHover(mouseX, mouseY);
+            updateRotationFromCoordinates(mouseX, mouseY);
         };
 
+        const handleClick = (event) => {
+            if (isMedium && isHoveringCube) {
+                // Navigate to home page
+                window.location.href = '/';
+            }
+        };
+
+        // Touch event handlers
+        const handleTouchStart = (event) => {
+            event.preventDefault(); // Prevent scrolling
+            
+            const touch = event.touches[0];
+            isDragging = true;
+            touchStartTime = Date.now();
+            
+            if (isLarge) {
+                previousTouchX = (touch.clientX / window.innerWidth) * 2 - 1;
+                previousTouchY = -(touch.clientY / window.innerHeight) * 2 + 1;
+            } else {
+                const rect = canvasContainer.getBoundingClientRect();
+                previousTouchX = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+                previousTouchY = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+            }
+            
+            // Check if touching cube
+            checkCubeHover(previousTouchX, previousTouchY);
+        };
+
+        const handleTouchMove = (event) => {
+            if (!isDragging) return;
+            event.preventDefault(); // Prevent scrolling
+            
+            const touch = event.touches[0];
+            let currentTouchX, currentTouchY;
+            
+            if (isLarge) {
+                currentTouchX = (touch.clientX / window.innerWidth) * 2 - 1;
+                currentTouchY = -(touch.clientY / window.innerHeight) * 2 + 1;
+            } else {
+                const rect = canvasContainer.getBoundingClientRect();
+                currentTouchX = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+                currentTouchY = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+            }
+            
+            // Calculate rotation based on touch movement
+            const deltaX = currentTouchX - previousTouchX;
+            const deltaY = currentTouchY - previousTouchY;
+            
+            // Add rotation incrementally for smoother touch interaction
+            targetRotationY += deltaX * Math.PI * 0.5;
+            targetRotationX += deltaY * Math.PI * 0.2;
+            
+            // Update previous position
+            previousTouchX = currentTouchX;
+            previousTouchY = currentTouchY;
+            
+            shouldAutoRotate = false;
+            lastInteraction = Date.now();
+            
+            // Reset gyroscope when actively touching
+            if (gyroActive) {
+                gyroActive = false;
+            }
+            
+            // Check cube hover during drag
+            checkCubeHover(currentTouchX, currentTouchY);
+        };
+
+        const handleTouchEnd = (event) => {
+            event.preventDefault();
+            
+            // If it was a quick tap (not a drag) and we're hovering the cube, trigger click
+            const touchDuration = Date.now() - touchStartTime;
+            if (touchDuration < 200 && isMedium && isHoveringCube) {
+                // Navigate to home page
+                window.location.href = '/';
+            }
+            
+            isDragging = false;
+        };
+
+        // Add event listeners
         interactionElement.addEventListener('mousemove', handleMouseMove);
+        if (isMedium) {
+            canvasContainer.addEventListener('click', handleClick);
+        }
+
+        // Touch event listeners
+        canvasContainer.addEventListener('touchstart', handleTouchStart, { passive: false });
+        canvasContainer.addEventListener('touchmove', handleTouchMove, { passive: false });
+        canvasContainer.addEventListener('touchend', handleTouchEnd, { passive: false });
 
         // Triangle tips
         const triangleTips = [
@@ -185,10 +486,18 @@ function initNav3D(container) {
         function animate() {
             requestAnimationFrame(animate);
 
-            if (shouldAutoRotate && Date.now() - lastInteraction > 2000) {
+            // Rotate cube if it exists
+            if (cube && cubeOutline) {
+                cube.rotation.x += 0.01;
+                cube.rotation.y += 0.01;
+                cubeOutline.rotation.x = cube.rotation.x;
+                cubeOutline.rotation.y = cube.rotation.y;
+            }
+
+            if (shouldAutoRotate && Date.now() - lastInteraction > 2000 && !gyroActive) {
                 wireframe.rotation.y += 0.005;
                 points.rotation.y += 0.005;
-            } else if (!shouldAutoRotate || Date.now() - lastInteraction <= 2000) {
+            } else if (!shouldAutoRotate || Date.now() - lastInteraction <= 2000 || gyroActive) {
                 wireframe.rotation.y += (targetRotationY - wireframe.rotation.y) * 0.05;
                 wireframe.rotation.x += (targetRotationX - wireframe.rotation.x) * 0.05;
                 points.rotation.y = wireframe.rotation.y;

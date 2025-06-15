@@ -1,4 +1,4 @@
-/* 3D Navigation Styles */
+/* 3D Navigation Styles - Mobile Responsive */
 .nav-3d-container {
     position: relative;
     background: transparent;
@@ -14,8 +14,8 @@
 }
 
 .nav-3d-medium {
-    width: 500px;
-    height: 350px;
+    width: 600px;
+    height: 400px;
     margin: 1rem auto;
 }
 
@@ -113,6 +113,25 @@
     pointer-events: none;
 }
 
+/* Medium version home cube tooltip */
+.nav-3d-medium .canvas-container::after {
+    content: "Click cube to go home";
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.4);
+    pointer-events: none;
+    z-index: 15;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.nav-3d-medium .canvas-container:hover::after {
+    opacity: 1;
+}
+
+/* Mobile Responsive Styles */
 @media (max-width: 768px) {
     .nav-3d-large .site-title {
         font-size: 2rem;
@@ -120,12 +139,91 @@
     }
     
     .nav-3d-medium {
-        width: 250px;
-        height: 150px;
+        width: 95vw; /* Use viewport width for better mobile sizing */
+        max-width: 500px; /* Prevent it from getting too large on tablets */
+        height: 60vw; /* Maintain aspect ratio */
+        max-height: 350px; /* Cap the height */
+        margin: 1rem auto;
     }
     
     .nav-3d-small {
-        width: 200px;
-        height: 120px;
+        width: 80vw; /* More responsive sizing */
+        max-width: 300px;
+        height: 50vw;
+        max-height: 200px;
+        margin: 0.5rem auto; /* Center it */
+    }
+    
+    /* Larger labels on mobile for better touch targets */
+    .nav-3d-medium .section-label {
+        font-size: 0.9rem;
+        padding: 6px 10px;
+        min-width: 60px; /* Ensure touch targets are large enough */
+    }
+    
+    .nav-3d-small .section-label {
+        font-size: 0.7rem;
+        padding: 4px 8px;
+        min-width: 50px;
+    }
+    
+    /* Adjust tooltip for mobile */
+    .nav-3d-medium .canvas-container::after {
+        content: "Tap cube for home";
+        font-size: 0.6rem;
+        bottom: 5px;
+        right: 5px;
+    }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 480px) {
+    .nav-3d-medium {
+        width: 98vw;
+        height: 65vw;
+        max-height: 280px;
+        margin: 0.5rem auto;
+    }
+    
+    .nav-3d-medium .site-title {
+        font-size: 1.2rem;
+        top: 8%;
+    }
+    
+    .nav-3d-small {
+        width: 90vw;
+        height: 60vw;
+        max-height: 180px;
+    }
+    
+    .nav-3d-small .site-title {
+        font-size: 0.8rem;
+    }
+    
+    /* Larger touch targets for very small screens */
+    .nav-3d-medium .section-label {
+        font-size: 1rem;
+        padding: 8px 12px;
+        min-width: 70px;
+    }
+    
+    .nav-3d-small .section-label {
+        font-size: 0.8rem;
+        padding: 6px 10px;
+        min-width: 60px;
+    }
+}
+
+/* Landscape orientation on mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+    .nav-3d-medium {
+        width: 70vw;
+        height: 80vh;
+        max-height: none;
+    }
+    
+    .nav-3d-small {
+        width: 50vw;
+        height: 60vh;
     }
 }
