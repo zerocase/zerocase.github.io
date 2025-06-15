@@ -112,12 +112,19 @@ function initNav3D(container) {
         const points = new THREE.Points(pointGeometry, pointMaterial);
         scene.add(points);
 
-        // Add center cube (only for medium version)
+        // Add center cube (for medium and large versions)
         let cube = null;
         let cubeOutline = null;
-        if (isMedium) {
+        let cubeRandomSpinning = false;
+        let cubeSpinStartTime = 0;
+        let cubeSpinDuration = 0;
+        let cubeSpinVelocityX = 0;
+        let cubeSpinVelocityY = 0;
+        let cubeSpinVelocityZ = 0;
+        
+        if (isMedium || isLarge) {
             // Create cube geometry - make it bigger and more visible
-            const cubeSize = 2.0 * scale; // Increased from 1.2
+            const cubeSize = 2.0 * scale;
             const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
             
             // Create semi-transparent cube material
@@ -178,13 +185,42 @@ function initNav3D(container) {
             gamma: 0.003  // Rotation around Y-axis (left-to-right tilt)
         };
 
-        // Raycaster for cube interaction (only for medium version)
+        // Raycaster for cube interaction
         let raycaster = null;
         let mouse = new THREE.Vector2();
         
-        if (isMedium) {
+        if (isMedium || isLarge) {
             raycaster = new THREE.Raycaster();
         }
+
+        // Function to trigger random cube spin
+        const triggerRandomSpin = () => {
+            if (!cube || cubeRandomSpinning) return;
+            
+            cubeRandomSpinning = true;
+            cubeSpinStartTime = Date.now();
+            cubeSpinDuration = 2000 + Math.random() * 3000; // 2-5 seconds
+            
+            // Random spin velocities
+            cubeSpinVelocityX = (Math.random() - 0.5) * 0.3;
+            cubeSpinVelocityY = (Math.random() - 0.5) * 0.3;
+            cubeSpinVelocityZ = (Math.random() - 0.5) * 0.3;
+            
+            // Add glow effect during spin (same as hover effect)
+            cube.material.opacity = 0.8;
+            cube.material.color.setHex(0x66aaff);
+            cubeOutline.material.opacity = 1;
+            cubeOutline.material.color.setHex(0xaaccff);
+            
+            // Reset to normal after spin
+            setTimeout(() => {
+                cubeRandomSpinning = false;
+                cube.material.opacity = 0.5;
+                cube.material.color.setHex(0x4488ff);
+                cubeOutline.material.opacity = 0.8;
+                cubeOutline.material.color.setHex(0x88aaff);
+            }, cubeSpinDuration);
+        };
 
         // Check if gyroscope is supported and request permission
         const initGyroscope = async () => {
@@ -305,7 +341,7 @@ function initNav3D(container) {
         };
 
         const checkCubeHover = (x, y) => {
-            if (isMedium && raycaster && cube) {
+            if ((isMedium || isLarge) && raycaster && cube) {
                 mouse.x = x;
                 mouse.y = y;
                 
@@ -317,20 +353,24 @@ function initNav3D(container) {
                         isHoveringCube = true;
                         canvasContainer.style.cursor = 'pointer';
                         // Add glow effect
-                        cube.material.opacity = 0.8;
-                        cube.material.color.setHex(0x66aaff);
-                        cubeOutline.material.opacity = 1;
-                        cubeOutline.material.color.setHex(0xaaccff);
+                        if (!cubeRandomSpinning) {
+                            cube.material.opacity = 0.8;
+                            cube.material.color.setHex(0x66aaff);
+                            cubeOutline.material.opacity = 1;
+                            cubeOutline.material.color.setHex(0xaaccff);
+                        }
                     }
                 } else {
                     if (isHoveringCube) {
                         isHoveringCube = false;
                         canvasContainer.style.cursor = 'default';
                         // Remove glow effect
-                        cube.material.opacity = 0.5;
-                        cube.material.color.setHex(0x4488ff);
-                        cubeOutline.material.opacity = 0.8;
-                        cubeOutline.material.color.setHex(0x88aaff);
+                        if (!cubeRandomSpinning) {
+                            cube.material.opacity = 0.5;
+                            cube.material.color.setHex(0x4488ff);
+                            cubeOutline.material.opacity = 0.8;
+                            cubeOutline.material.color.setHex(0x88aaff);
+                        }
                     }
                 }
             }
@@ -351,9 +391,14 @@ function initNav3D(container) {
         };
 
         const handleClick = (event) => {
-            if (isMedium && isHoveringCube) {
-                // Navigate to home page
-                window.location.href = '/';
+            if ((isMedium || isLarge) && isHoveringCube) {
+                if (isMedium) {
+                    // Navigate to home page for medium version
+                    window.location.href = '/';
+                } else if (isLarge) {
+                    // Trigger random spin for large version
+                    triggerRandomSpin();
+                }
             }
         };
 
@@ -423,9 +468,14 @@ function initNav3D(container) {
             
             // If it was a quick tap (not a drag) and we're hovering the cube, trigger click
             const touchDuration = Date.now() - touchStartTime;
-            if (touchDuration < 200 && isMedium && isHoveringCube) {
-                // Navigate to home page
-                window.location.href = '/';
+            if (touchDuration < 200 && (isMedium || isLarge) && isHoveringCube) {
+                if (isMedium) {
+                    // Navigate to home page for medium version
+                    window.location.href = '/';
+                } else if (isLarge) {
+                    // Trigger random spin for large version
+                    triggerRandomSpin();
+                }
             }
             
             isDragging = false;
@@ -433,7 +483,7 @@ function initNav3D(container) {
 
         // Add event listeners
         interactionElement.addEventListener('mousemove', handleMouseMove);
-        if (isMedium) {
+        if (isMedium || isLarge) {
             canvasContainer.addEventListener('click', handleClick);
         }
 
@@ -486,12 +536,28 @@ function initNav3D(container) {
         function animate() {
             requestAnimationFrame(animate);
 
-            // Rotate cube if it exists
+            // Handle cube rotation
             if (cube && cubeOutline) {
-                cube.rotation.x += 0.01;
-                cube.rotation.y += 0.01;
-                cubeOutline.rotation.x = cube.rotation.x;
-                cubeOutline.rotation.y = cube.rotation.y;
+                if (cubeRandomSpinning) {
+                    // Random spin animation with easing
+                    const elapsed = Date.now() - cubeSpinStartTime;
+                    const progress = Math.min(elapsed / cubeSpinDuration, 1);
+                    const easing = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+                    
+                    const spinSpeed = (1 - easing);
+                    cube.rotation.x += cubeSpinVelocityX * spinSpeed;
+                    cube.rotation.y += cubeSpinVelocityY * spinSpeed;
+                    cube.rotation.z += cubeSpinVelocityZ * spinSpeed;
+                    cubeOutline.rotation.x = cube.rotation.x;
+                    cubeOutline.rotation.y = cube.rotation.y;
+                    cubeOutline.rotation.z = cube.rotation.z;
+                } else {
+                    // Normal rotation
+                    cube.rotation.x += 0.01;
+                    cube.rotation.y += 0.01;
+                    cubeOutline.rotation.x = cube.rotation.x;
+                    cubeOutline.rotation.y = cube.rotation.y;
+                }
             }
 
             if (shouldAutoRotate && Date.now() - lastInteraction > 2000 && !gyroActive) {
