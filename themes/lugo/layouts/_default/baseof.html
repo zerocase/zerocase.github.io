@@ -15,6 +15,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="index, follow">
 <meta charset="utf-8">
+<style>
+.content-nav-container {
+    text-align: center;
+    margin: 2rem auto 3rem auto;
+    padding: 1rem;
+}
+</style>
 </head>
 <body>
 {{ if .IsHome }}
@@ -43,17 +50,8 @@
 </footer>
 {{ end }}
 {{ end }}
-
 <!-- 3D Navigation JavaScript -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="/js/3d-nav.js"></script>
-
-<style>
-.content-nav-container {
-text-align: center;
-margin: 2rem auto 3rem auto;
-padding: 1rem;
-}
-</style>
 </body>
 </html>
