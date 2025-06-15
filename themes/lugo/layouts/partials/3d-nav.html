@@ -1,0 +1,22 @@
+<!-- partials/3d-nav.html -->
+{{- $size := .size | default "medium" -}}
+{{- $autoRotate := .autoRotate | default true -}}
+{{- $showTitle := .showTitle | default false -}}
+
+<div class="nav-3d-container nav-3d-{{ $size }}" data-size="{{ $size }}" data-auto-rotate="{{ $autoRotate }}">
+    {{- if $showTitle -}}
+    <h1 class="site-title">{{ .Site.Title | upper }}</h1>
+    {{- end -}}
+    
+    <div class="canvas-container"></div>
+    
+    {{- range $index, $item := .Site.Menus.main.ByWeight -}}
+    <a href="{{ $item.URL }}" class="section-label" data-position="{{ $index }}">{{ $item.Name | upper }}</a>
+    {{- end -}}
+    
+    {{- if eq $size "large" -}}
+    <div class="instructions">
+        Move mouse to rotate • Click sections to navigate
+    </div>
+    {{- end -}}
+</div>

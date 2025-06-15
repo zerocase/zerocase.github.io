@@ -1,0 +1,21 @@
+{{ define "main" }}
+{{ partial "3d-nav.html" (dict "size" "large" "showTitle" true "autoRotate" true "Site" .Site) }}
+<style>
+body {
+    overflow: hidden;
+}
+</style>
+<script>
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+    const keys = {
+        {{- range $index, $item := .Site.Menus.main.ByWeight -}}
+        '{{ add $index 1 }}': '{{ $item.URL }}',
+        {{- end -}}
+    };
+    if (keys[e.key]) {
+        window.location.href = keys[e.key];
+    }
+});
+</script>
+{{ end }}
