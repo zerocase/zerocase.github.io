@@ -13,7 +13,7 @@
   {{- end -}}
   <div class="tag-canvas-container"></div>
   <div class="tag-instructions">
-    Scroll, drag, or click tags to explore • Check console for navigation
+    Scroll, drag, or click tags to explore.
   </div>
 </div>
 
@@ -24,40 +24,41 @@
   background: transparent;
   cursor: grab;
   margin: 2rem auto;
+  width: 100%;
+  max-width: none;
 }
 
 .tag-cloud-3d-container:active {
   cursor: grabbing;
 }
 
+/* Desktop sizes - fixed width, not stretching, but bigger */
 .tag-cloud-large {
-  width: 100%;
-  max-width: 800px;
-  height: 500px;
+  width: 800px;
+  height: 150px;
 }
 
 .tag-cloud-medium {
-  width: 1000px;
-  height: 200px;
+  width: 700px;
+  height: 130px;
 }
 
 .tag-cloud-small {
-  width: 300px;
-  height: 250px;
+  width: 600px;
+  height: 110px;
 }
 
 /* Auto size - will be set by JavaScript */
 .tag-cloud-auto {
-  width: 600px;
-  height: 400px;
+  width: 700px;
+  height: 130px;
 }
 
 .tag-cloud-3d-container .tag-canvas-container {
   width: 100%;
   height: 100%;
   position: relative;
-  border: 1px solid rgba(16, 255, 136, 0.2);
-  background: rgba(16, 255, 136, 0.02);
+  background: rgba(0, 0, 0, 0);
   backdrop-filter: blur(10px);
 }
 
@@ -91,22 +92,22 @@
   font-weight: 300;
 }
 
-/* Mobile Responsive */
+/* Mobile Responsive - centered and properly sized */
 @media (max-width: 768px) {
   .tag-cloud-large,
   .tag-cloud-medium,
   .tag-cloud-auto {
-    width: 95vw;
-    max-width: 500px;
-    height: 60vw;
-    max-height: 350px;
+    width: 320px;
+    height: 100px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .tag-cloud-small {
-    width: 80vw;
-    max-width: 300px;
-    height: 50vw;
-    max-height: 200px;
+    width: 280px;
+    height: 90px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .tag-instructions {
@@ -119,9 +120,10 @@
   .tag-cloud-medium,
   .tag-cloud-auto,
   .tag-cloud-small {
-    width: 95vw;
-    height: 65vw;
-    max-height: 280px;
+    width: 300px;
+    height: 85px;
+    margin-left: auto;
+    margin-right: auto;
   }
 }
 </style>
@@ -137,10 +139,16 @@
     const autoRotate = container.dataset.autoRotate === 'true';
     const tagsData = JSON.parse(container.dataset.tags || '[]');
     
+    // Improved mobile detection
+    function isMobileDevice() {
+      return window.innerWidth <= 768 || 
+             /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+    
     // Auto-detect size based on screen width if size is 'auto'
     if (size === 'auto') {
-      const isMobile = window.innerWidth <= 768;
-      size = isMobile ? 'small' : 'medium';
+      const mobile = isMobileDevice();
+      size = mobile ? 'small' : 'medium';
       
       // Update the container class to reflect the detected size
       container.classList.remove('tag-cloud-auto');
@@ -178,7 +186,15 @@
     renderer.setClearColor(0x000000, 0);
     containerElement.appendChild(renderer.domElement);
 
-    camera.position.z = 4;
+    // Adjust camera position based on aspect ratio - wider viewports get pulled back more
+    const aspectRatio = containerRect.width / containerRect.height;
+    const mobile = isMobileDevice();
+    
+    if (mobile) {
+      camera.position.z = 2.8; // Even closer for mobile due to smaller height
+    } else {
+      camera.position.z = aspectRatio > 2.5 ? 4.4 : aspectRatio > 1.8 ? 4.0 : 3.6;
+    }
 
     // Create tag group
     tagGroup = new THREE.Group();
@@ -212,7 +228,23 @@
     animate();
 
     function createTags() {
-      const radius = size === 'small' ? 2.5 : size === 'medium' ? 3.0 : 3.5;
+      // Adjust radius based on aspect ratio and mobile detection
+      const aspectRatio = containerRect.width / containerRect.height;
+      const mobile = isMobileDevice();
+      
+      let radius;
+      if (mobile) {
+        radius = 2.4; // Smaller radius for mobile due to much smaller height
+      } else if (aspectRatio > 3) {
+        radius = 3.8; // Very wide screens
+      } else if (aspectRatio > 2.5) {
+        radius = 3.4; // Wide screens
+      } else if (aspectRatio > 2) {
+        radius = 3.0; // Moderately wide
+      } else {
+        radius = 2.8; // Standard
+      }
+      
       const angleStep = (Math.PI * 2) / tagsData.length;
 
       tagsData.forEach((tagData, index) => {
@@ -220,13 +252,12 @@
         const x = Math.sin(angle) * radius;
         const z = Math.cos(angle) * radius;
 
-        // Determine if mobile based on actual size being used
-        const isMobile = size === 'small';
-        const geometry = isMobile ? 
-          new THREE.PlaneGeometry(1.4, 0.4) :  // Smaller, more proportional for mobile
-          new THREE.PlaneGeometry(1.6, 0.5);
+        // Adjust tag size based on mobile detection
+        const geometry = mobile ? 
+          new THREE.PlaneGeometry(1.4, 0.4) :  // Mobile size
+          new THREE.PlaneGeometry(1.6, 0.5);   // Desktop size
         
-        const canvas = createTagTexture(tagData.name, index === 0, 0, tagData.count, isMobile);
+        const canvas = createTagTexture(tagData.name, index === 0, 0, tagData.count, mobile);
         const texture = new THREE.CanvasTexture(canvas);
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
@@ -263,12 +294,12 @@
       });
     }
 
-    function createTagTexture(text, isActive = false, sparkleTime = 0, count = 0, isMobile = false) {
+    function createTagTexture(text, isActive = false, sparkleTime = 0, count = 0, mobile = false) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
       // Adjust canvas dimensions based on mobile
-      if (isMobile) {
+      if (mobile) {
         canvas.width = 200;  // Smaller width for mobile
         canvas.height = 60;  // Shorter height for mobile
       } else {
@@ -313,7 +344,7 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       // Adjust font size for mobile
-      ctx.font = isMobile ? 'bold 14px Arial' : 'bold 18px Arial';
+      ctx.font = mobile ? 'bold 14px Arial' : 'bold 18px Arial';
       
       const textY = canvas.height / 2 - (count > 0 ? 5 : 0);
       
@@ -331,9 +362,9 @@
 
       // Count badge
       if (count > 0) {
-        ctx.font = isMobile ? 'bold 10px Arial' : 'bold 12px Arial';
+        ctx.font = mobile ? 'bold 10px Arial' : 'bold 12px Arial';
         ctx.fillStyle = isActive ? 'rgba(16, 255, 136, 0.8)' : 'rgba(16, 255, 136, 0.6)';
-        const badgeY = isMobile ? canvas.height / 2 + 10 : canvas.height / 2 + 12;
+        const badgeY = mobile ? canvas.height / 2 + 10 : canvas.height / 2 + 12;
         ctx.fillText(`(${count})`, canvas.width / 2, badgeY);
       }
 
@@ -539,9 +570,8 @@
       tagMeshes.forEach((tagMesh, index) => {
         const isActive = index === activeIndex;
         if (tagMesh.userData.isActive !== isActive) {
-          // Use the determined size instead of checking container width again
-          const isMobile = size === 'small';
-          const canvas = createTagTexture(tagMesh.userData.name, isActive, sparkleOffset, tagMesh.userData.count, isMobile);
+          const mobile = isMobileDevice();
+          const canvas = createTagTexture(tagMesh.userData.name, isActive, sparkleOffset, tagMesh.userData.count, mobile);
           tagMesh.material.map = new THREE.CanvasTexture(canvas);
           tagMesh.material.map.minFilter = THREE.LinearFilter;
           tagMesh.material.map.magFilter = THREE.LinearFilter;
@@ -580,9 +610,8 @@
         tagMesh.position.y = tagMesh.userData.originalPosition.y + tagMesh.userData.mouseOffset.y;
 
         if (tagMesh.userData.isActive) {
-          // Use the determined size instead of checking container width again
-          const isMobile = size === 'small';
-          const canvas = createTagTexture(tagMesh.userData.name, true, sparkleOffset, tagMesh.userData.count, isMobile);
+          const mobile = isMobileDevice();
+          const canvas = createTagTexture(tagMesh.userData.name, true, sparkleOffset, tagMesh.userData.count, mobile);
           tagMesh.material.map = new THREE.CanvasTexture(canvas);
           tagMesh.material.map.minFilter = THREE.LinearFilter;
           tagMesh.material.map.magFilter = THREE.LinearFilter;
@@ -617,7 +646,9 @@
       // Re-detect size on resize if it was auto-detected originally
       const originalSize = instance.container.dataset.size;
       if (originalSize === 'auto' || instance.size === 'small' || instance.size === 'medium') {
-        const isMobile = window.innerWidth <= 768;
+        // Improved mobile detection
+        const isMobile = window.innerWidth <= 768 || 
+                         /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const newSize = isMobile ? 'small' : 'medium';
         
         if (newSize !== instance.size) {
