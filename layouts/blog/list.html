@@ -1,0 +1,36 @@
+{{ define "title" -}}
+{{ .Title | title }}
+{{- end }}
+{{ define "main" -}}
+<div class="blog-container">
+  {{ .Content }}
+  <div class="blog-posts">
+  {{- range.Pages }}
+  <article class="blog-post-preview">
+    <header>
+      <h2><a href="{{ .RelPermalink }}">{{ .Title }}</a></h2>
+      <div class="blog-meta">
+        <time datetime="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Date.Format "January 2, 2006" }}</time>
+        {{- if .Params.authors }}
+        <span class="authors">by {{ delimit .Params.authors ", " " and " }}</span>
+        {{- end }}
+        {{- if .Params.tags }}
+        <div class="blog-tags">
+          {{- range .Params.tags }}
+          <span class="tag">{{ . }}</span>
+          {{- end }}
+        </div>
+        {{- end }}
+      </div>
+    </header>
+    <div class="blog-excerpt">
+      {{ .Summary }}
+      {{- if .Truncated }}
+      <p><a href="{{ .RelPermalink }}" class="read-more">Read more →</a></p>
+      {{- end }}
+    </div>
+  </article>
+  {{- end }}
+  </div>
+</div>
+{{- end }}

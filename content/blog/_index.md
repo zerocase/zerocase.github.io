@@ -1,7 +1,4 @@
 ---
-title: 'Blog'
+title: "Blog"
+description: "Latest thoughts, tutorials, and insights"
 ---
-
-# Creative Blog
-
-Thoughts, process, and stories.

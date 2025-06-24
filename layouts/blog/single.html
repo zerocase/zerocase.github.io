@@ -1,0 +1,48 @@
+{{ define "title" -}}
+{{ .Title }}
+{{- end }}
+{{ define "main" -}}
+<div class="blog-container">
+<article class="blog-post">
+<header class="blog-header">
+<div class="blog-meta">
+<time datetime="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Date.Format "January 2, 2006" }}</time>
+ {{- if .Params.authors }}
+<span class="authors">by {{ delimit .Params.authors ", " " and " }}</span>
+ {{- end }}
+ {{- if .Params.reading_time }}
+<span class="reading-time">{{ .Params.reading_time }} min read</span>
+ {{- else if .ReadingTime }}
+<span class="reading-time">{{ .ReadingTime }} min read</span>
+ {{- end }}
+</div>
+
+{{- /* Get tags directly using Hugo's taxonomy */ -}}
+{{- $tags := slice -}}
+{{- range $name, $taxonomy := .Site.Taxonomies.tags -}}
+  {{- $count := $taxonomy.Count -}}
+  {{- $tagURL := printf "/tags/%s/" ($name | urlize) -}}
+  {{- $tags = $tags | append (dict "name" $name "count" $count "url" $tagURL) -}}
+{{- end -}}
+
+{{- /* Sort by count and limit */ -}}
+{{- $tags = sort $tags "count" "desc" -}}
+{{- if gt (len $tags) 8 -}}
+  {{- $tags = first 8 $tags -}}
+{{- end -}}
+
+{{- /* Load 3D Tag Cloud */ -}}
+{{- if $tags -}}
+<div style="margin: 1.5rem 0;">
+  {{ partial "tag-cloud.html" (dict "tags" $tags "size" "small" "autoRotate" false) }}
+</div>
+{{- end -}}
+
+</header>
+<div class="blog-content">
+ {{ .Content }}
+</div>
+ {{- if .Param "nextprev" }}{{ partial "nextprev.html" . -}}{{ end -}}
+</article>
+</div>
+{{- end }}

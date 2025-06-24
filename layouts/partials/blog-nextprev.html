@@ -1,0 +1,18 @@
+{{ if or .Next .Prev -}}
+<nav class="blog-navigation">
+  <div class="nav-links">
+    {{- with .Prev }}
+    <div class="nav-previous">
+      <span class="nav-label">← Previous Post</span>
+      <a href="{{ .RelPermalink}}" class="nav-title">{{.Title}}</a>
+    </div>
+    {{ end -}}
+    {{- with .Next -}}
+    <div class="nav-next">
+      <span class="nav-label">Next Post →</span>
+      <a href="{{ .RelPermalink}}" class="nav-title">{{.Title}}</a>
+    </div>
+    {{ end -}}
+  </div>
+</nav>
+{{ end -}}

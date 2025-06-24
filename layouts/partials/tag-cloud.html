@@ -1,0 +1,646 @@
+<!-- layouts/partials/tag-cloud.html -->
+{{- $size := .size | default "auto" -}}
+{{- $autoRotate := .autoRotate | default true -}}
+{{- $showTitle := .showTitle | default false -}}
+{{- $tags := .tags | default slice -}}
+
+<div class="tag-cloud-3d-container tag-cloud-{{ $size }}" 
+     data-size="{{ $size }}" 
+     data-auto-rotate="{{ $autoRotate }}"
+     data-tags="{{ jsonify $tags }}">
+  {{- if $showTitle -}}
+  <h3 class="tag-cloud-title">Explore Tags</h3>
+  {{- end -}}
+  <div class="tag-canvas-container"></div>
+  <div class="tag-instructions">
+    Scroll, drag, or click tags to explore • Check console for navigation
+  </div>
+</div>
+
+<style>
+/* 3D Tag Cloud Styles */
+.tag-cloud-3d-container {
+  position: relative;
+  background: transparent;
+  cursor: grab;
+  margin: 2rem auto;
+}
+
+.tag-cloud-3d-container:active {
+  cursor: grabbing;
+}
+
+.tag-cloud-large {
+  width: 100%;
+  max-width: 800px;
+  height: 500px;
+}
+
+.tag-cloud-medium {
+  width: 1000px;
+  height: 200px;
+}
+
+.tag-cloud-small {
+  width: 300px;
+  height: 250px;
+}
+
+/* Auto size - will be set by JavaScript */
+.tag-cloud-auto {
+  width: 600px;
+  height: 400px;
+}
+
+.tag-cloud-3d-container .tag-canvas-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  border: 1px solid rgba(16, 255, 136, 0.2);
+  background: rgba(16, 255, 136, 0.02);
+  backdrop-filter: blur(10px);
+}
+
+.tag-cloud-title {
+  text-align: center;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  color: #10ff88;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+}
+
+.tag-cloud-large .tag-cloud-title {
+  font-size: 1.5rem;
+}
+
+.tag-cloud-medium .tag-cloud-title,
+.tag-cloud-auto .tag-cloud-title {
+  font-size: 1.2rem;
+}
+
+.tag-cloud-small .tag-cloud-title {
+  font-size: 1rem;
+}
+
+.tag-instructions {
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 300;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .tag-cloud-large,
+  .tag-cloud-medium,
+  .tag-cloud-auto {
+    width: 95vw;
+    max-width: 500px;
+    height: 60vw;
+    max-height: 350px;
+  }
+  
+  .tag-cloud-small {
+    width: 80vw;
+    max-width: 300px;
+    height: 50vw;
+    max-height: 200px;
+  }
+  
+  .tag-instructions {
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .tag-cloud-large,
+  .tag-cloud-medium,
+  .tag-cloud-auto,
+  .tag-cloud-small {
+    width: 95vw;
+    height: 65vw;
+    max-height: 280px;
+  }
+}
+</style>
+
+<script>
+// 3D Tag Cloud Implementation
+(function() {
+  let tagCloudInstances = [];
+
+  function initTagCloud(container) {
+    const containerElement = container.querySelector('.tag-canvas-container');
+    let size = container.dataset.size || 'auto';
+    const autoRotate = container.dataset.autoRotate === 'true';
+    const tagsData = JSON.parse(container.dataset.tags || '[]');
+    
+    // Auto-detect size based on screen width if size is 'auto'
+    if (size === 'auto') {
+      const isMobile = window.innerWidth <= 768;
+      size = isMobile ? 'small' : 'medium';
+      
+      // Update the container class to reflect the detected size
+      container.classList.remove('tag-cloud-auto');
+      container.classList.add(`tag-cloud-${size}`);
+      
+      // Update the data attribute for consistency
+      container.dataset.size = size;
+    }
+    
+    if (tagsData.length === 0) return;
+
+    let scene, camera, renderer, tagGroup;
+    let tagMeshes = [];
+    let currentActiveIndex = 0;
+    let currentRotation = 0;
+    let targetRotation = 0;
+    let isMouseDown = false;
+    let isDragging = false;
+    let lastMouseX = 0;
+    let dragStartTime = 0;
+    let snapTimeout;
+    let mouse = { x: 0, y: 0 };
+    let sparkleOffset = 0;
+    let raycaster = new THREE.Raycaster();
+    let mouseVector = new THREE.Vector2();
+
+    // Scene setup
+    scene = new THREE.Scene();
+    
+    const containerRect = containerElement.getBoundingClientRect();
+    camera = new THREE.PerspectiveCamera(75, containerRect.width / containerRect.height, 0.1, 1000);
+    
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(containerRect.width, containerRect.height);
+    renderer.setClearColor(0x000000, 0);
+    containerElement.appendChild(renderer.domElement);
+
+    camera.position.z = 4;
+
+    // Create tag group
+    tagGroup = new THREE.Group();
+    scene.add(tagGroup);
+
+    // Create tags
+    createTags();
+
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(0, 0, 5);
+    scene.add(directionalLight);
+
+    // Event listeners
+    setupEventListeners();
+
+    // Auto rotation
+    if (autoRotate) {
+      setInterval(() => {
+        if (!isMouseDown && !isDragging) {
+          let newIndex = (currentActiveIndex + 1) % tagsData.length;
+          rotateToTag(newIndex);
+        }
+      }, 3000);
+    }
+
+    // Start animation
+    animate();
+
+    function createTags() {
+      const radius = size === 'small' ? 2.5 : size === 'medium' ? 3.0 : 3.5;
+      const angleStep = (Math.PI * 2) / tagsData.length;
+
+      tagsData.forEach((tagData, index) => {
+        const angle = index * angleStep;
+        const x = Math.sin(angle) * radius;
+        const z = Math.cos(angle) * radius;
+
+        // Determine if mobile based on actual size being used
+        const isMobile = size === 'small';
+        const geometry = isMobile ? 
+          new THREE.PlaneGeometry(1.4, 0.4) :  // Smaller, more proportional for mobile
+          new THREE.PlaneGeometry(1.6, 0.5);
+        
+        const canvas = createTagTexture(tagData.name, index === 0, 0, tagData.count, isMobile);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+
+        const material = new THREE.MeshLambertMaterial({ 
+          map: texture, 
+          transparent: true,
+          side: THREE.DoubleSide
+        });
+
+        const tagMesh = new THREE.Mesh(geometry, material);
+        tagMesh.position.set(x, 0, z);
+        
+        const outwardDirection = new THREE.Vector3(x, 0, z).normalize();
+        tagMesh.lookAt(
+          tagMesh.position.x + outwardDirection.x,
+          tagMesh.position.y + outwardDirection.y,
+          tagMesh.position.z + outwardDirection.z
+        );
+        
+        tagMesh.userData = { 
+          index: index, 
+          name: tagData.name,
+          url: tagData.url,
+          count: tagData.count,
+          originalScale: 1,
+          isActive: index === 0,
+          originalPosition: { x: x, y: 0, z: z },
+          mouseOffset: { x: 0, y: 0, z: 0 }
+        };
+
+        tagMeshes.push(tagMesh);
+        tagGroup.add(tagMesh);
+      });
+    }
+
+    function createTagTexture(text, isActive = false, sparkleTime = 0, count = 0, isMobile = false) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Adjust canvas dimensions based on mobile
+      if (isMobile) {
+        canvas.width = 200;  // Smaller width for mobile
+        canvas.height = 60;  // Shorter height for mobile
+      } else {
+        canvas.width = 256;
+        canvas.height = 80;
+      }
+
+      // Green theme background
+      if (isActive) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(16, 255, 136, 0.4)');
+        gradient.addColorStop(0.5, 'rgba(0, 208, 132, 0.25)');
+        gradient.addColorStop(1, 'rgba(0, 179, 119, 0.35)');
+        ctx.fillStyle = gradient;
+      } else {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
+        gradient.addColorStop(0.5, 'rgba(16, 255, 136, 0.03)');
+        gradient.addColorStop(1, 'rgba(16, 255, 136, 0.06)');
+        ctx.fillStyle = gradient;
+      }
+      
+      // Draw background
+      ctx.fillRect(8, 8, canvas.width - 16, canvas.height - 16);
+
+      // Border
+      if (isActive) {
+        ctx.shadowColor = 'rgba(16, 255, 136, 0.8)';
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = 'rgba(16, 255, 136, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = 'rgba(16, 255, 136, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+      }
+
+      // Text
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Adjust font size for mobile
+      ctx.font = isMobile ? 'bold 14px Arial' : 'bold 18px Arial';
+      
+      const textY = canvas.height / 2 - (count > 0 ? 5 : 0);
+      
+      if (isActive) {
+        ctx.shadowColor = 'rgba(16, 255, 136, 0.9)';
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, canvas.width / 2, textY);
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillText(text, canvas.width / 2, textY);
+      }
+
+      // Count badge
+      if (count > 0) {
+        ctx.font = isMobile ? 'bold 10px Arial' : 'bold 12px Arial';
+        ctx.fillStyle = isActive ? 'rgba(16, 255, 136, 0.8)' : 'rgba(16, 255, 136, 0.6)';
+        const badgeY = isMobile ? canvas.height / 2 + 10 : canvas.height / 2 + 12;
+        ctx.fillText(`(${count})`, canvas.width / 2, badgeY);
+      }
+
+      // Sparkles for active tags
+      if (isActive) {
+        const sparkleIntensity = 0.7 + Math.sin(sparkleTime * 3) * 0.3;
+        
+        [[25, 20], [canvas.width - 30, 25], [35, canvas.height - 20], [canvas.width - 25, canvas.height - 25]].forEach((pos, index) => {
+          const twinkle = 0.5 + Math.sin(sparkleTime * 4 + index) * 0.5;
+          ctx.globalAlpha = twinkle;
+          
+          ctx.beginPath();
+          ctx.arc(pos[0] + Math.sin(sparkleTime * 2 + index) * 2, pos[1] + Math.cos(sparkleTime * 1.5 + index) * 2, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(16, 255, 136, ${sparkleIntensity})`;
+          ctx.fill();
+        });
+        
+        ctx.globalAlpha = 1;
+      }
+
+      return canvas;
+    }
+
+    function setupEventListeners() {
+      const canvas = renderer.domElement;
+
+      canvas.addEventListener('mousedown', onMouseDown);
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('mouseleave', onMouseUp);
+      canvas.addEventListener('click', onTagClick);
+      canvas.addEventListener('wheel', onWheel);
+
+      // Touch events
+      canvas.addEventListener('touchstart', onTouchStart);
+      canvas.addEventListener('touchmove', onTouchMove);
+      canvas.addEventListener('touchend', onTouchEnd);
+
+      // Mouse tracking
+      canvas.addEventListener('mousemove', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+      });
+    }
+
+    function onTagClick(event) {
+      if (isDragging) return;
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseVector.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseVector.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouseVector, camera);
+      const intersects = raycaster.intersectObjects(tagMeshes);
+
+      if (intersects.length > 0) {
+        const clickedTag = intersects[0].object;
+        const clickedIndex = clickedTag.userData.index;
+        
+        if (clickedIndex !== currentActiveIndex) {
+          rotateToTag(clickedIndex);
+        } else if (clickedTag.userData.url) {
+          // Navigate to tag page
+          window.location.href = clickedTag.userData.url;
+        }
+      }
+    }
+
+    function onMouseDown(event) {
+      isMouseDown = true;
+      isDragging = false;
+      lastMouseX = event.clientX;
+      dragStartTime = Date.now();
+      clearTimeout(snapTimeout);
+    }
+
+    function onMouseMove(event) {
+      if (!isMouseDown) return;
+
+      const deltaX = event.clientX - lastMouseX;
+      const deltaTime = Date.now() - dragStartTime;
+      
+      if (Math.abs(deltaX) > 5 || deltaTime > 100) {
+        isDragging = true;
+      }
+      
+      if (isDragging) {
+        targetRotation += deltaX * 0.01;
+        lastMouseX = event.clientX;
+      }
+    }
+
+    function onMouseUp() {
+      isMouseDown = false;
+      if (isDragging) {
+        scheduleSnap();
+      }
+      isDragging = false;
+    }
+
+    function onTouchStart(event) {
+      isMouseDown = true;
+      isDragging = false;
+      lastMouseX = event.touches[0].clientX;
+      dragStartTime = Date.now();
+      clearTimeout(snapTimeout);
+      event.preventDefault();
+    }
+
+    function onTouchMove(event) {
+      if (!isMouseDown) return;
+
+      const deltaX = event.touches[0].clientX - lastMouseX;
+      const deltaTime = Date.now() - dragStartTime;
+      
+      if (Math.abs(deltaX) > 5 || deltaTime > 100) {
+        isDragging = true;
+      }
+      
+      if (isDragging) {
+        targetRotation += deltaX * 0.01;
+        lastMouseX = event.touches[0].clientX;
+      }
+      event.preventDefault();
+    }
+
+    function onTouchEnd(event) {
+      isMouseDown = false;
+      if (isDragging) {
+        scheduleSnap();
+      }
+      isDragging = false;
+      event.preventDefault();
+    }
+
+    function onWheel(event) {
+      event.preventDefault();
+      
+      const direction = event.deltaY > 0 ? 1 : -1;
+      let newIndex = currentActiveIndex + direction;
+      
+      if (newIndex < 0) {
+        newIndex = tagsData.length - 1;
+      } else if (newIndex >= tagsData.length) {
+        newIndex = 0;
+      }
+      
+      rotateToTag(newIndex);
+    }
+
+    function rotateToTag(targetIndex) {
+      const angleStep = (Math.PI * 2) / tagsData.length;
+      const newTargetRotation = -targetIndex * angleStep;
+      
+      const currentNormalized = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const newNormalized = ((newTargetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      
+      const diff1 = newNormalized - currentNormalized;
+      const diff2 = diff1 + (diff1 > 0 ? -Math.PI * 2 : Math.PI * 2);
+      
+      const shortestDiff = Math.abs(diff1) < Math.abs(diff2) ? diff1 : diff2;
+      targetRotation += shortestDiff;
+      
+      currentActiveIndex = targetIndex;
+      updateActiveTag(targetIndex);
+      
+      clearTimeout(snapTimeout);
+    }
+
+    function scheduleSnap() {
+      clearTimeout(snapTimeout);
+      snapTimeout = setTimeout(() => {
+        snapToNearest();
+      }, 150);
+    }
+
+    function snapToNearest() {
+      const angleStep = (Math.PI * 2) / tagsData.length;
+      const normalizedRotation = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      let nearestIndex = Math.round(-normalizedRotation / angleStep);
+      
+      if (nearestIndex < 0) {
+        nearestIndex += tagsData.length;
+      }
+      nearestIndex = nearestIndex % tagsData.length;
+      
+      const newTargetRotation = -nearestIndex * angleStep;
+      const currentNormalized = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const newNormalized = ((newTargetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      
+      const diff1 = newNormalized - currentNormalized;
+      const diff2 = diff1 + (diff1 > 0 ? -Math.PI * 2 : Math.PI * 2);
+      
+      const shortestDiff = Math.abs(diff1) < Math.abs(diff2) ? diff1 : diff2;
+      targetRotation += shortestDiff;
+      
+      currentActiveIndex = nearestIndex;
+      updateActiveTag(nearestIndex);
+    }
+
+    function updateActiveTag(activeIndex) {
+      tagMeshes.forEach((tagMesh, index) => {
+        const isActive = index === activeIndex;
+        if (tagMesh.userData.isActive !== isActive) {
+          // Use the determined size instead of checking container width again
+          const isMobile = size === 'small';
+          const canvas = createTagTexture(tagMesh.userData.name, isActive, sparkleOffset, tagMesh.userData.count, isMobile);
+          tagMesh.material.map = new THREE.CanvasTexture(canvas);
+          tagMesh.material.map.minFilter = THREE.LinearFilter;
+          tagMesh.material.map.magFilter = THREE.LinearFilter;
+          tagMesh.material.needsUpdate = true;
+          tagMesh.userData.isActive = isActive;
+        }
+        
+        const targetScale = isActive ? 1.15 : 1;
+        tagMesh.userData.targetScale = targetScale;
+      });
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      sparkleOffset += 0.02;
+      currentRotation += (targetRotation - currentRotation) * 0.1;
+      tagGroup.rotation.y = currentRotation;
+
+      tagMeshes.forEach((tagMesh) => {
+        if (tagMesh.userData.targetScale) {
+          const currentScale = tagMesh.scale.x;
+          const targetScale = tagMesh.userData.targetScale;
+          const newScale = currentScale + (targetScale - currentScale) * 0.1;
+          tagMesh.scale.set(newScale, newScale, newScale);
+        }
+
+        const mouseInfluence = 0.05;
+        const targetOffsetX = mouse.x * mouseInfluence;
+        const targetOffsetY = mouse.y * mouseInfluence * 0.5;
+        
+        tagMesh.userData.mouseOffset.x += (targetOffsetX - tagMesh.userData.mouseOffset.x) * 0.1;
+        tagMesh.userData.mouseOffset.y += (targetOffsetY - tagMesh.userData.mouseOffset.y) * 0.1;
+        
+        tagMesh.position.x = tagMesh.userData.originalPosition.x + tagMesh.userData.mouseOffset.x;
+        tagMesh.position.y = tagMesh.userData.originalPosition.y + tagMesh.userData.mouseOffset.y;
+
+        if (tagMesh.userData.isActive) {
+          // Use the determined size instead of checking container width again
+          const isMobile = size === 'small';
+          const canvas = createTagTexture(tagMesh.userData.name, true, sparkleOffset, tagMesh.userData.count, isMobile);
+          tagMesh.material.map = new THREE.CanvasTexture(canvas);
+          tagMesh.material.map.minFilter = THREE.LinearFilter;
+          tagMesh.material.map.magFilter = THREE.LinearFilter;
+          tagMesh.material.needsUpdate = true;
+        }
+      });
+
+      renderer.render(scene, camera);
+    }
+
+    // Store instance for cleanup
+    tagCloudInstances.push({
+      container: container,
+      renderer: renderer,
+      animate: animate,
+      size: size
+    });
+  }
+
+  // Initialize all tag clouds when DOM is ready
+  document.addEventListener('DOMContentLoaded', function() {
+    const tagClouds = document.querySelectorAll('.tag-cloud-3d-container');
+    tagClouds.forEach(initTagCloud);
+  });
+
+  // Handle window resize with size re-detection
+  window.addEventListener('resize', function() {
+    tagCloudInstances.forEach(instance => {
+      const containerRect = instance.container.querySelector('.tag-canvas-container').getBoundingClientRect();
+      instance.renderer.setSize(containerRect.width, containerRect.height);
+      
+      // Re-detect size on resize if it was auto-detected originally
+      const originalSize = instance.container.dataset.size;
+      if (originalSize === 'auto' || instance.size === 'small' || instance.size === 'medium') {
+        const isMobile = window.innerWidth <= 768;
+        const newSize = isMobile ? 'small' : 'medium';
+        
+        if (newSize !== instance.size) {
+          // Size changed, reinitialize the tag cloud
+          instance.container.classList.remove(`tag-cloud-${instance.size}`);
+          instance.container.classList.add(`tag-cloud-${newSize}`);
+          instance.container.dataset.size = newSize;
+          
+          // Clear the container and reinitialize
+          const containerElement = instance.container.querySelector('.tag-canvas-container');
+          containerElement.innerHTML = '';
+          
+          // Remove from instances array
+          const index = tagCloudInstances.indexOf(instance);
+          if (index > -1) {
+            tagCloudInstances.splice(index, 1);
+          }
+          
+          // Reinitialize
+          initTagCloud(instance.container);
+        }
+      }
+    });
+  });
+})();
+</script>
