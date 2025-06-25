@@ -3,34 +3,47 @@
 {{- end }}
 {{ define "main" -}}
 <div class="blog-container">
-  {{ .Content }}
-  <div class="blog-posts">
-  {{- range.Pages }}
-  <article class="blog-post-preview">
-    <header>
-      <h2><a href="{{ .RelPermalink }}">{{ .Title }}</a></h2>
-      <div class="blog-meta">
-        <time datetime="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Date.Format "January 2, 2006" }}</time>
-        {{- if .Params.authors }}
-        <span class="authors">by {{ delimit .Params.authors ", " " and " }}</span>
-        {{- end }}
-        {{- if .Params.tags }}
-        <div class="blog-tags">
-          {{- range .Params.tags }}
-          <span class="tag">{{ . }}</span>
-          {{- end }}
-        </div>
-        {{- end }}
-      </div>
-    </header>
-    <div class="blog-excerpt">
-      {{ .Summary }}
-      {{- if .Truncated }}
-      <p><a href="{{ .RelPermalink }}" class="read-more">Read more →</a></p>
-      {{- end }}
-    </div>
-  </article>
-  {{- end }}
-  </div>
+ {{ .Content }}
+<div class="blog-posts blog-posts-grid">
+ {{- range .Pages }}
+<article class="blog-post-preview blog-post-card">
+<header>
+<h2><a href="{{ .RelPermalink }}">{{ .Title }}</a></h2>
+<div class="blog-meta">
+<time datetime="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Date.Format "January 2, 2006" }}</time>
+ {{- if .Params.authors }}
+<span class="authors">by {{ delimit .Params.authors ", " " and " }}</span>
+ {{- end }}
+</div>
+
+{{- /* Get tags specific to THIS post for the tag cloud */ -}}
+{{- if .Params.tags -}}
+{{- $postTags := slice -}}
+{{- range .Params.tags -}}
+ {{- $tagName := . -}}
+ {{- $tagURL := printf "/tags/%s/" (. | urlize) -}}
+ {{- /* Get the count for this specific tag from site taxonomy */ -}}
+ {{- $tagCount := 0 -}}
+ {{- if index $.Site.Taxonomies.tags (. | urlize) -}}
+ {{- $tagCount = (index $.Site.Taxonomies.tags (. | urlize)).Count -}}
+ {{- end -}}
+ {{- $postTags = $postTags | append (dict "name" $tagName "count" $tagCount "url" $tagURL) -}}
+{{- end -}}
+
+{{- /* Show single 3D tag cloud with all tags for this post */ -}}
+{{- if gt (len $postTags) 0 -}}
+<div class="tag-cloud-wrapper">
+ {{ partial "tag-cloud.html" (dict "tags" $postTags "size" "small" "autoRotate" true) }}
+</div>
+{{- end -}}
+{{- end -}}
+
+</header>
+<div class="blog-actions">
+<a href="{{ .RelPermalink }}" class="read-more">Read more →</a>
+</div>
+</article>
+ {{- end }}
+</div>
 </div>
 {{- end }}

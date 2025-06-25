@@ -3,8 +3,10 @@
 {{- $autoRotate := .autoRotate | default true -}}
 {{- $showTitle := .showTitle | default false -}}
 {{- $tags := .tags | default slice -}}
+{{- $uniqueId := printf "tag-cloud-%d" (now.Unix | add (len ($tags | jsonify))) -}}
 
 <div class="tag-cloud-3d-container tag-cloud-{{ $size }}" 
+     id="{{ $uniqueId }}"
      data-size="{{ $size }}" 
      data-auto-rotate="{{ $autoRotate }}"
      data-tags="{{ jsonify $tags }}">
@@ -90,6 +92,13 @@
   font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.6);
   font-weight: 300;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.tag-cloud-3d-container:hover .tag-instructions {
+  opacity: 1;
 }
 
 /* Mobile Responsive - centered and properly sized */
@@ -129,11 +138,19 @@
 </style>
 
 <script>
-// 3D Tag Cloud Implementation
+// 3D Tag Cloud Implementation - Multiple Instance Support
 (function() {
-  let tagCloudInstances = [];
+  // Store instances globally but with unique identifiers
+  window.tagCloudInstances = window.tagCloudInstances || new Map();
 
   function initTagCloud(container) {
+    const containerId = container.id;
+    
+    // Skip if already initialized
+    if (window.tagCloudInstances.has(containerId)) {
+      return;
+    }
+
     const containerElement = container.querySelector('.tag-canvas-container');
     let size = container.dataset.size || 'auto';
     const autoRotate = container.dataset.autoRotate === 'true';
@@ -160,74 +177,84 @@
     
     if (tagsData.length === 0) return;
 
-    let scene, camera, renderer, tagGroup;
-    let tagMeshes = [];
-    let currentActiveIndex = 0;
-    let currentRotation = 0;
-    let targetRotation = 0;
-    let isMouseDown = false;
-    let isDragging = false;
-    let lastMouseX = 0;
-    let dragStartTime = 0;
-    let snapTimeout;
-    let mouse = { x: 0, y: 0 };
-    let sparkleOffset = 0;
-    let raycaster = new THREE.Raycaster();
-    let mouseVector = new THREE.Vector2();
+    // Create instance-specific variables
+    const instance = {
+      scene: null,
+      camera: null,
+      renderer: null,
+      tagGroup: null,
+      tagMeshes: [],
+      currentActiveIndex: 0,
+      currentRotation: 0,
+      targetRotation: 0,
+      isMouseDown: false,
+      isDragging: false,
+      lastMouseX: 0,
+      dragStartTime: 0,
+      snapTimeout: null,
+      mouse: { x: 0, y: 0 },
+      sparkleOffset: 0,
+      raycaster: new THREE.Raycaster(),
+      mouseVector: new THREE.Vector2(),
+      animationId: null
+    };
 
     // Scene setup
-    scene = new THREE.Scene();
+    instance.scene = new THREE.Scene();
     
     const containerRect = containerElement.getBoundingClientRect();
-    camera = new THREE.PerspectiveCamera(75, containerRect.width / containerRect.height, 0.1, 1000);
+    instance.camera = new THREE.PerspectiveCamera(75, containerRect.width / containerRect.height, 0.1, 1000);
     
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(containerRect.width, containerRect.height);
-    renderer.setClearColor(0x000000, 0);
-    containerElement.appendChild(renderer.domElement);
+    instance.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    instance.renderer.setSize(containerRect.width, containerRect.height);
+    instance.renderer.setClearColor(0x000000, 0);
+    containerElement.appendChild(instance.renderer.domElement);
 
     // Adjust camera position based on aspect ratio - wider viewports get pulled back more
     const aspectRatio = containerRect.width / containerRect.height;
     const mobile = isMobileDevice();
     
     if (mobile) {
-      camera.position.z = 2.8; // Even closer for mobile due to smaller height
+      instance.camera.position.z = 2.8; // Even closer for mobile due to smaller height
     } else {
-      camera.position.z = aspectRatio > 2.5 ? 4.4 : aspectRatio > 1.8 ? 4.0 : 3.6;
+      instance.camera.position.z = aspectRatio > 2.5 ? 4.4 : aspectRatio > 1.8 ? 4.0 : 3.6;
     }
 
     // Create tag group
-    tagGroup = new THREE.Group();
-    scene.add(tagGroup);
+    instance.tagGroup = new THREE.Group();
+    instance.scene.add(instance.tagGroup);
 
     // Create tags
-    createTags();
+    createTags(instance, tagsData);
 
     // Add lighting
     const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-    scene.add(ambientLight);
+    instance.scene.add(ambientLight);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(0, 0, 5);
-    scene.add(directionalLight);
+    instance.scene.add(directionalLight);
 
-    // Event listeners
-    setupEventListeners();
+    // Event listeners with instance binding
+    setupEventListeners(instance, containerElement);
 
     // Auto rotation
     if (autoRotate) {
-      setInterval(() => {
-        if (!isMouseDown && !isDragging) {
-          let newIndex = (currentActiveIndex + 1) % tagsData.length;
-          rotateToTag(newIndex);
+      instance.autoRotateInterval = setInterval(() => {
+        if (!instance.isMouseDown && !instance.isDragging) {
+          let newIndex = (instance.currentActiveIndex + 1) % tagsData.length;
+          rotateToTag(instance, newIndex, tagsData);
         }
       }, 3000);
     }
 
     // Start animation
-    animate();
+    animate(instance, tagsData);
 
-    function createTags() {
+    // Store instance
+    window.tagCloudInstances.set(containerId, instance);
+
+    function createTags(inst, tags) {
       // Adjust radius based on aspect ratio and mobile detection
       const aspectRatio = containerRect.width / containerRect.height;
       const mobile = isMobileDevice();
@@ -245,9 +272,9 @@
         radius = 2.8; // Standard
       }
       
-      const angleStep = (Math.PI * 2) / tagsData.length;
+      const angleStep = (Math.PI * 2) / tags.length;
 
-      tagsData.forEach((tagData, index) => {
+      tags.forEach((tagData, index) => {
         const angle = index * angleStep;
         const x = Math.sin(angle) * radius;
         const z = Math.cos(angle) * radius;
@@ -289,8 +316,8 @@
           mouseOffset: { x: 0, y: 0, z: 0 }
         };
 
-        tagMeshes.push(tagMesh);
-        tagGroup.add(tagMesh);
+        inst.tagMeshes.push(tagMesh);
+        inst.tagGroup.add(tagMesh);
       });
     }
 
@@ -388,8 +415,85 @@
       return canvas;
     }
 
-    function setupEventListeners() {
-      const canvas = renderer.domElement;
+    function setupEventListeners(inst, containerEl) {
+      const canvas = inst.renderer.domElement;
+
+      function onMouseDown(event) {
+        inst.isMouseDown = true;
+        inst.isDragging = false;
+        inst.lastMouseX = event.clientX;
+        inst.dragStartTime = Date.now();
+        clearTimeout(inst.snapTimeout);
+      }
+
+      function onMouseMove(event) {
+        if (!inst.isMouseDown) return;
+
+        const deltaX = event.clientX - inst.lastMouseX;
+        const deltaTime = Date.now() - inst.dragStartTime;
+        
+        if (Math.abs(deltaX) > 5 || deltaTime > 100) {
+          inst.isDragging = true;
+        }
+        
+        if (inst.isDragging) {
+          inst.targetRotation += deltaX * 0.01;
+          inst.lastMouseX = event.clientX;
+        }
+      }
+
+      function onMouseUp() {
+        inst.isMouseDown = false;
+        if (inst.isDragging) {
+          scheduleSnap(inst, tagsData);
+        }
+        inst.isDragging = false;
+      }
+
+      function onTagClick(event) {
+        if (inst.isDragging) return;
+        
+        const rect = inst.renderer.domElement.getBoundingClientRect();
+        inst.mouseVector.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        inst.mouseVector.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        inst.raycaster.setFromCamera(inst.mouseVector, inst.camera);
+        const intersects = inst.raycaster.intersectObjects(inst.tagMeshes);
+
+        if (intersects.length > 0) {
+          const clickedTag = intersects[0].object;
+          const clickedIndex = clickedTag.userData.index;
+          
+          if (clickedIndex !== inst.currentActiveIndex) {
+            rotateToTag(inst, clickedIndex, tagsData);
+          } else if (clickedTag.userData.url) {
+            // Navigate to tag page
+            window.location.href = clickedTag.userData.url;
+          }
+        }
+      }
+
+      function onWheel(event) {
+        event.preventDefault();
+        
+        const direction = event.deltaY > 0 ? 1 : -1;
+        let newIndex = inst.currentActiveIndex + direction;
+        
+        if (newIndex < 0) {
+          newIndex = tagsData.length - 1;
+        } else if (newIndex >= tagsData.length) {
+          newIndex = 0;
+        }
+        
+        rotateToTag(inst, newIndex, tagsData);
+      }
+
+      // Mouse tracking
+      function onMouseMoveTrack(event) {
+        const rect = canvas.getBoundingClientRect();
+        inst.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        inst.mouse.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+      }
 
       canvas.addEventListener('mousedown', onMouseDown);
       canvas.addEventListener('mousemove', onMouseMove);
@@ -397,181 +501,101 @@
       canvas.addEventListener('mouseleave', onMouseUp);
       canvas.addEventListener('click', onTagClick);
       canvas.addEventListener('wheel', onWheel);
+      canvas.addEventListener('mousemove', onMouseMoveTrack);
 
       // Touch events
-      canvas.addEventListener('touchstart', onTouchStart);
-      canvas.addEventListener('touchmove', onTouchMove);
-      canvas.addEventListener('touchend', onTouchEnd);
+      canvas.addEventListener('touchstart', (event) => {
+        inst.isMouseDown = true;
+        inst.isDragging = false;
+        inst.lastMouseX = event.touches[0].clientX;
+        inst.dragStartTime = Date.now();
+        clearTimeout(inst.snapTimeout);
+        event.preventDefault();
+      });
 
-      // Mouse tracking
-      canvas.addEventListener('mousemove', (event) => {
-        const rect = canvas.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+      canvas.addEventListener('touchmove', (event) => {
+        if (!inst.isMouseDown) return;
+
+        const deltaX = event.touches[0].clientX - inst.lastMouseX;
+        const deltaTime = Date.now() - inst.dragStartTime;
+        
+        if (Math.abs(deltaX) > 5 || deltaTime > 100) {
+          inst.isDragging = true;
+        }
+        
+        if (inst.isDragging) {
+          inst.targetRotation += deltaX * 0.01;
+          inst.lastMouseX = event.touches[0].clientX;
+        }
+        event.preventDefault();
+      });
+
+      canvas.addEventListener('touchend', (event) => {
+        inst.isMouseDown = false;
+        if (inst.isDragging) {
+          scheduleSnap(inst, tagsData);
+        }
+        inst.isDragging = false;
+        event.preventDefault();
       });
     }
 
-    function onTagClick(event) {
-      if (isDragging) return;
-      
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouseVector.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseVector.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouseVector, camera);
-      const intersects = raycaster.intersectObjects(tagMeshes);
-
-      if (intersects.length > 0) {
-        const clickedTag = intersects[0].object;
-        const clickedIndex = clickedTag.userData.index;
-        
-        if (clickedIndex !== currentActiveIndex) {
-          rotateToTag(clickedIndex);
-        } else if (clickedTag.userData.url) {
-          // Navigate to tag page
-          window.location.href = clickedTag.userData.url;
-        }
-      }
-    }
-
-    function onMouseDown(event) {
-      isMouseDown = true;
-      isDragging = false;
-      lastMouseX = event.clientX;
-      dragStartTime = Date.now();
-      clearTimeout(snapTimeout);
-    }
-
-    function onMouseMove(event) {
-      if (!isMouseDown) return;
-
-      const deltaX = event.clientX - lastMouseX;
-      const deltaTime = Date.now() - dragStartTime;
-      
-      if (Math.abs(deltaX) > 5 || deltaTime > 100) {
-        isDragging = true;
-      }
-      
-      if (isDragging) {
-        targetRotation += deltaX * 0.01;
-        lastMouseX = event.clientX;
-      }
-    }
-
-    function onMouseUp() {
-      isMouseDown = false;
-      if (isDragging) {
-        scheduleSnap();
-      }
-      isDragging = false;
-    }
-
-    function onTouchStart(event) {
-      isMouseDown = true;
-      isDragging = false;
-      lastMouseX = event.touches[0].clientX;
-      dragStartTime = Date.now();
-      clearTimeout(snapTimeout);
-      event.preventDefault();
-    }
-
-    function onTouchMove(event) {
-      if (!isMouseDown) return;
-
-      const deltaX = event.touches[0].clientX - lastMouseX;
-      const deltaTime = Date.now() - dragStartTime;
-      
-      if (Math.abs(deltaX) > 5 || deltaTime > 100) {
-        isDragging = true;
-      }
-      
-      if (isDragging) {
-        targetRotation += deltaX * 0.01;
-        lastMouseX = event.touches[0].clientX;
-      }
-      event.preventDefault();
-    }
-
-    function onTouchEnd(event) {
-      isMouseDown = false;
-      if (isDragging) {
-        scheduleSnap();
-      }
-      isDragging = false;
-      event.preventDefault();
-    }
-
-    function onWheel(event) {
-      event.preventDefault();
-      
-      const direction = event.deltaY > 0 ? 1 : -1;
-      let newIndex = currentActiveIndex + direction;
-      
-      if (newIndex < 0) {
-        newIndex = tagsData.length - 1;
-      } else if (newIndex >= tagsData.length) {
-        newIndex = 0;
-      }
-      
-      rotateToTag(newIndex);
-    }
-
-    function rotateToTag(targetIndex) {
-      const angleStep = (Math.PI * 2) / tagsData.length;
+    function rotateToTag(inst, targetIndex, tags) {
+      const angleStep = (Math.PI * 2) / tags.length;
       const newTargetRotation = -targetIndex * angleStep;
       
-      const currentNormalized = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const currentNormalized = ((inst.targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       const newNormalized = ((newTargetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       
       const diff1 = newNormalized - currentNormalized;
       const diff2 = diff1 + (diff1 > 0 ? -Math.PI * 2 : Math.PI * 2);
       
       const shortestDiff = Math.abs(diff1) < Math.abs(diff2) ? diff1 : diff2;
-      targetRotation += shortestDiff;
+      inst.targetRotation += shortestDiff;
       
-      currentActiveIndex = targetIndex;
-      updateActiveTag(targetIndex);
+      inst.currentActiveIndex = targetIndex;
+      updateActiveTag(inst, targetIndex, tags);
       
-      clearTimeout(snapTimeout);
+      clearTimeout(inst.snapTimeout);
     }
 
-    function scheduleSnap() {
-      clearTimeout(snapTimeout);
-      snapTimeout = setTimeout(() => {
-        snapToNearest();
+    function scheduleSnap(inst, tags) {
+      clearTimeout(inst.snapTimeout);
+      inst.snapTimeout = setTimeout(() => {
+        snapToNearest(inst, tags);
       }, 150);
     }
 
-    function snapToNearest() {
-      const angleStep = (Math.PI * 2) / tagsData.length;
-      const normalizedRotation = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    function snapToNearest(inst, tags) {
+      const angleStep = (Math.PI * 2) / tags.length;
+      const normalizedRotation = ((inst.targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       let nearestIndex = Math.round(-normalizedRotation / angleStep);
       
       if (nearestIndex < 0) {
-        nearestIndex += tagsData.length;
+        nearestIndex += tags.length;
       }
-      nearestIndex = nearestIndex % tagsData.length;
+      nearestIndex = nearestIndex % tags.length;
       
       const newTargetRotation = -nearestIndex * angleStep;
-      const currentNormalized = ((targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const currentNormalized = ((inst.targetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       const newNormalized = ((newTargetRotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       
       const diff1 = newNormalized - currentNormalized;
       const diff2 = diff1 + (diff1 > 0 ? -Math.PI * 2 : Math.PI * 2);
       
       const shortestDiff = Math.abs(diff1) < Math.abs(diff2) ? diff1 : diff2;
-      targetRotation += shortestDiff;
+      inst.targetRotation += shortestDiff;
       
-      currentActiveIndex = nearestIndex;
-      updateActiveTag(nearestIndex);
+      inst.currentActiveIndex = nearestIndex;
+      updateActiveTag(inst, nearestIndex, tags);
     }
 
-    function updateActiveTag(activeIndex) {
-      tagMeshes.forEach((tagMesh, index) => {
+    function updateActiveTag(inst, activeIndex, tags) {
+      inst.tagMeshes.forEach((tagMesh, index) => {
         const isActive = index === activeIndex;
         if (tagMesh.userData.isActive !== isActive) {
           const mobile = isMobileDevice();
-          const canvas = createTagTexture(tagMesh.userData.name, isActive, sparkleOffset, tagMesh.userData.count, mobile);
+          const canvas = createTagTexture(tagMesh.userData.name, isActive, inst.sparkleOffset, tagMesh.userData.count, mobile);
           tagMesh.material.map = new THREE.CanvasTexture(canvas);
           tagMesh.material.map.minFilter = THREE.LinearFilter;
           tagMesh.material.map.magFilter = THREE.LinearFilter;
@@ -584,14 +608,14 @@
       });
     }
 
-    function animate() {
-      requestAnimationFrame(animate);
+    function animate(inst, tags) {
+      inst.animationId = requestAnimationFrame(() => animate(inst, tags));
 
-      sparkleOffset += 0.02;
-      currentRotation += (targetRotation - currentRotation) * 0.1;
-      tagGroup.rotation.y = currentRotation;
+      inst.sparkleOffset += 0.02;
+      inst.currentRotation += (inst.targetRotation - inst.currentRotation) * 0.1;
+      inst.tagGroup.rotation.y = inst.currentRotation;
 
-      tagMeshes.forEach((tagMesh) => {
+      inst.tagMeshes.forEach((tagMesh) => {
         if (tagMesh.userData.targetScale) {
           const currentScale = tagMesh.scale.x;
           const targetScale = tagMesh.userData.targetScale;
@@ -600,8 +624,8 @@
         }
 
         const mouseInfluence = 0.05;
-        const targetOffsetX = mouse.x * mouseInfluence;
-        const targetOffsetY = mouse.y * mouseInfluence * 0.5;
+        const targetOffsetX = inst.mouse.x * mouseInfluence;
+        const targetOffsetY = inst.mouse.y * mouseInfluence * 0.5;
         
         tagMesh.userData.mouseOffset.x += (targetOffsetX - tagMesh.userData.mouseOffset.x) * 0.1;
         tagMesh.userData.mouseOffset.y += (targetOffsetY - tagMesh.userData.mouseOffset.y) * 0.1;
@@ -611,7 +635,7 @@
 
         if (tagMesh.userData.isActive) {
           const mobile = isMobileDevice();
-          const canvas = createTagTexture(tagMesh.userData.name, true, sparkleOffset, tagMesh.userData.count, mobile);
+          const canvas = createTagTexture(tagMesh.userData.name, true, inst.sparkleOffset, tagMesh.userData.count, mobile);
           tagMesh.material.map = new THREE.CanvasTexture(canvas);
           tagMesh.material.map.minFilter = THREE.LinearFilter;
           tagMesh.material.map.magFilter = THREE.LinearFilter;
@@ -619,16 +643,8 @@
         }
       });
 
-      renderer.render(scene, camera);
+      inst.renderer.render(inst.scene, inst.camera);
     }
-
-    // Store instance for cleanup
-    tagCloudInstances.push({
-      container: container,
-      renderer: renderer,
-      animate: animate,
-      size: size
-    });
   }
 
   // Initialize all tag clouds when DOM is ready
@@ -639,39 +655,58 @@
 
   // Handle window resize with size re-detection
   window.addEventListener('resize', function() {
-    tagCloudInstances.forEach(instance => {
-      const containerRect = instance.container.querySelector('.tag-canvas-container').getBoundingClientRect();
+    window.tagCloudInstances.forEach((instance, containerId) => {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      
+      const containerRect = container.querySelector('.tag-canvas-container').getBoundingClientRect();
       instance.renderer.setSize(containerRect.width, containerRect.height);
       
       // Re-detect size on resize if it was auto-detected originally
-      const originalSize = instance.container.dataset.size;
+      const originalSize = container.dataset.size;
       if (originalSize === 'auto' || instance.size === 'small' || instance.size === 'medium') {
         // Improved mobile detection
         const isMobile = window.innerWidth <= 768 || 
                          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const newSize = isMobile ? 'small' : 'medium';
         
-        if (newSize !== instance.size) {
+        if (newSize !== originalSize) {
           // Size changed, reinitialize the tag cloud
-          instance.container.classList.remove(`tag-cloud-${instance.size}`);
-          instance.container.classList.add(`tag-cloud-${newSize}`);
-          instance.container.dataset.size = newSize;
+          container.classList.remove(`tag-cloud-${originalSize}`);
+          container.classList.add(`tag-cloud-${newSize}`);
+          container.dataset.size = newSize;
           
           // Clear the container and reinitialize
-          const containerElement = instance.container.querySelector('.tag-canvas-container');
+          const containerElement = container.querySelector('.tag-canvas-container');
           containerElement.innerHTML = '';
           
-          // Remove from instances array
-          const index = tagCloudInstances.indexOf(instance);
-          if (index > -1) {
-            tagCloudInstances.splice(index, 1);
+          // Cleanup old instance
+          if (instance.animationId) {
+            cancelAnimationFrame(instance.animationId);
           }
+          if (instance.autoRotateInterval) {
+            clearInterval(instance.autoRotateInterval);
+          }
+          window.tagCloudInstances.delete(containerId);
           
           // Reinitialize
-          initTagCloud(instance.container);
+          initTagCloud(container);
         }
       }
     });
+  });
+
+  // Cleanup function for page navigation
+  window.addEventListener('beforeunload', function() {
+    window.tagCloudInstances.forEach((instance) => {
+      if (instance.animationId) {
+        cancelAnimationFrame(instance.animationId);
+      }
+      if (instance.autoRotateInterval) {
+        clearInterval(instance.autoRotateInterval);
+      }
+    });
+    window.tagCloudInstances.clear();
   });
 })();
 </script>

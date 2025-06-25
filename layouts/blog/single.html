@@ -17,25 +17,26 @@
  {{- end }}
 </div>
 
-{{- /* Get tags directly using Hugo's taxonomy */ -}}
-{{- $tags := slice -}}
-{{- range $name, $taxonomy := .Site.Taxonomies.tags -}}
-  {{- $count := $taxonomy.Count -}}
-  {{- $tagURL := printf "/tags/%s/" ($name | urlize) -}}
-  {{- $tags = $tags | append (dict "name" $name "count" $count "url" $tagURL) -}}
+{{- /* Get tags specific to THIS post only */ -}}
+{{- if .Params.tags -}}
+{{- $postTags := slice -}}
+{{- range .Params.tags -}}
+ {{- $tagName := . -}}
+ {{- $tagURL := printf "/tags/%s/" (. | urlize) -}}
+ {{- /* Get the count for this specific tag from site taxonomy */ -}}
+ {{- $tagCount := 0 -}}
+ {{- if index $.Site.Taxonomies.tags (. | urlize) -}}
+  {{- $tagCount = (index $.Site.Taxonomies.tags (. | urlize)).Count -}}
+ {{- end -}}
+ {{- $postTags = $postTags | append (dict "name" $tagName "count" $tagCount "url" $tagURL) -}}
 {{- end -}}
 
-{{- /* Sort by count and limit */ -}}
-{{- $tags = sort $tags "count" "desc" -}}
-{{- if gt (len $tags) 8 -}}
-  {{- $tags = first 8 $tags -}}
-{{- end -}}
-
-{{- /* Load 3D Tag Cloud */ -}}
-{{- if $tags -}}
+{{- /* Only show tag cloud if this post has tags */ -}}
+{{- if $postTags -}}
 <div style="margin: 1.5rem 0;">
-  {{ partial "tag-cloud.html" (dict "tags" $tags "size" "small" "autoRotate" false) }}
+ {{ partial "tag-cloud.html" (dict "tags" $postTags "size" "small" "autoRotate" false) }}
 </div>
+{{- end -}}
 {{- end -}}
 
 </header>
