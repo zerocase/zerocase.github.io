@@ -504,11 +504,21 @@
       canvas.addEventListener('mousemove', onMouseMoveTrack);
 
       // Touch events
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartTime = 0;
+
       canvas.addEventListener('touchstart', (event) => {
         inst.isMouseDown = true;
         inst.isDragging = false;
         inst.lastMouseX = event.touches[0].clientX;
         inst.dragStartTime = Date.now();
+        
+        // Store touch start position and time for tap detection
+        touchStartX = event.touches[0].clientX;
+        touchStartY = event.touches[0].clientY;
+        touchStartTime = Date.now();
+        
         clearTimeout(inst.snapTimeout);
         event.preventDefault();
       });
@@ -531,10 +541,44 @@
       });
 
       canvas.addEventListener('touchend', (event) => {
+        const touchEndTime = Date.now();
+        const touchDuration = touchEndTime - touchStartTime;
+        
+        // Get the last touch position
+        const lastTouch = event.changedTouches[0];
+        const touchDistanceX = Math.abs(lastTouch.clientX - touchStartX);
+        const touchDistanceY = Math.abs(lastTouch.clientY - touchStartY);
+        const touchDistance = Math.sqrt(touchDistanceX * touchDistanceX + touchDistanceY * touchDistanceY);
+        
         inst.isMouseDown = false;
-        if (inst.isDragging) {
+        
+        // Detect tap: short duration, small movement
+        const isTap = touchDuration < 300 && touchDistance < 10 && !inst.isDragging;
+        
+        if (isTap) {
+          // Handle tap - same logic as click
+          const rect = inst.renderer.domElement.getBoundingClientRect();
+          inst.mouseVector.x = ((lastTouch.clientX - rect.left) / rect.width) * 2 - 1;
+          inst.mouseVector.y = -((lastTouch.clientY - rect.top) / rect.height) * 2 + 1;
+
+          inst.raycaster.setFromCamera(inst.mouseVector, inst.camera);
+          const intersects = inst.raycaster.intersectObjects(inst.tagMeshes);
+
+          if (intersects.length > 0) {
+            const clickedTag = intersects[0].object;
+            const clickedIndex = clickedTag.userData.index;
+            
+            if (clickedIndex !== inst.currentActiveIndex) {
+              rotateToTag(inst, clickedIndex, tagsData);
+            } else if (clickedTag.userData.url) {
+              // Navigate to tag page
+              window.location.href = clickedTag.userData.url;
+            }
+          }
+        } else if (inst.isDragging) {
           scheduleSnap(inst, tagsData);
         }
+        
         inst.isDragging = false;
         event.preventDefault();
       });
