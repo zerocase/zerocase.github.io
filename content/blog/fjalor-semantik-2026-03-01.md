@@ -183,3 +183,5 @@ Kualiteti i rezultateve gjithmonë varet nga detajet e përshkrimit sa më speci
 Për momentin fjalori është online në [fjalor-semantik.com](https://fjalor-semantik.com) dhe mund ta provoni që tani.
 
 Nëse dëshironi të ndihmoni mbajtjen e fjalorit në punë, do ta vlerësoja një donacion.
+
+https://ko-fi.com/fjalorsemantik
