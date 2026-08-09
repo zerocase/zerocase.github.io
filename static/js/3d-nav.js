@@ -8,6 +8,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// Shortest signed distance from one angle to another, in (-PI, PI]. Rotations
+// are 2*PI periodic, so settling toward a target by this delta takes the short
+// way round instead of unwinding every turn the idle spin piled up.
+function shortestAngleTo(from, to) {
+    let delta = (to - from) % (Math.PI * 2);
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    return delta;
+}
+
+// Fold an angle back into (-PI, PI]. Visually a no-op, it just stops a long
+// idle spin from accumulating without bound.
+function wrapAngle(angle) {
+    return shortestAngleTo(0, angle);
+}
+
 function initNav3D(container) {
     const canvasContainer = container.querySelector('.canvas-container');
     if (!canvasContainer) return;
@@ -115,39 +131,64 @@ function initNav3D(container) {
         // Add center cube (for medium and large versions)
         let cube = null;
         let cubeOutline = null;
-        let cubeRandomSpinning = false;
-        let cubeSpinStartTime = 0;
-        let cubeSpinDuration = 0;
-        let cubeSpinVelocityX = 0;
-        let cubeSpinVelocityY = 0;
-        let cubeSpinVelocityZ = 0;
-        
+
+        // The cube is driven by an angular velocity that is continuously eased
+        // back toward a slow idle drift. A click injects an impulse, so the spin
+        // starts fast and settles back into the idle rotation without snapping.
+        // The drift is ~26s per turn on Y and ~35s on X at 60fps: a slow tumble
+        // rather than an attention-grabbing spin.
+        const cubeIdleSpin = new THREE.Vector3(0.003, 0.004, 0);
+        const cubeVelocity = cubeIdleSpin.clone();
+        let cubeSpinEnergy = 0; // 1 right after a click, decays to 0
+        let cubeGlow = 0;       // smoothed highlight, shared by hover and spin
+
+        const cubeBaseColor = new THREE.Color(0x4488ff);
+        const cubeHotColor = new THREE.Color(0x88ccff);
+        const outlineBaseColor = new THREE.Color(0x88aaff);
+        const outlineHotColor = new THREE.Color(0xe0f0ff);
+
         if (isMedium || isLarge) {
             // Create cube geometry - make it bigger and more visible
             const cubeSize = 2.0 * scale;
             const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-            
-            // Create semi-transparent cube material
-            const cubeMaterial = new THREE.MeshBasicMaterial({
-                color: 0x4488ff,
+
+            // Lights only affect the cube; the wireframe and points use
+            // materials that ignore them. Flat shading gives each face its own
+            // tone so the cube reads as a solid object while it turns.
+            scene.add(new THREE.AmbientLight(0x334466, 0.9));
+
+            const keyLight = new THREE.DirectionalLight(0xbcd8ff, 0.9);
+            keyLight.position.set(4, 8, 6);
+            scene.add(keyLight);
+
+            const rimLight = new THREE.DirectionalLight(0x4466cc, 0.6);
+            rimLight.position.set(-5, -4, -6);
+            scene.add(rimLight);
+
+            const cubeMaterial = new THREE.MeshPhongMaterial({
+                color: cubeBaseColor.clone(),
+                emissive: cubeBaseColor.clone().multiplyScalar(0.15),
+                specular: 0xbbddff,
+                shininess: 60,
+                flatShading: true,
                 transparent: true,
-                opacity: 0.5,
+                opacity: 0.55,
                 side: THREE.DoubleSide
             });
-            
+
             cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
             cube.position.set(0, 0, 0); // Explicitly set position at center
             scene.add(cube);
-            
+
             // Create cube outline
             const cubeOutlineGeometry = new THREE.EdgesGeometry(cubeGeometry);
             const cubeOutlineMaterial = new THREE.LineBasicMaterial({
-                color: 0x88aaff,
+                color: outlineBaseColor.clone(),
                 transparent: true,
                 opacity: 0.8,
                 linewidth: 2 // Make lines thicker
             });
-            
+
             cubeOutline = new THREE.LineSegments(cubeOutlineGeometry, cubeOutlineMaterial);
             cubeOutline.position.set(0, 0, 0); // Explicitly set position at center
             scene.add(cubeOutline);
@@ -163,6 +204,7 @@ function initNav3D(container) {
         let shouldAutoRotate = autoRotate;
         let lastInteraction = Date.now();
         let isHoveringCube = false;
+        let pointerActive = false; // drives the labels' pull toward the cursor
         
         // Touch interaction variables
         let isDragging = false;
@@ -195,31 +237,21 @@ function initNav3D(container) {
 
         // Function to trigger random cube spin
         const triggerRandomSpin = () => {
-            if (!cube || cubeRandomSpinning) return;
-            
-            cubeRandomSpinning = true;
-            cubeSpinStartTime = Date.now();
-            cubeSpinDuration = 2000 + Math.random() * 3000; // 2-5 seconds
-            
-            // Random spin velocities
-            cubeSpinVelocityX = (Math.random() - 0.5) * 0.3;
-            cubeSpinVelocityY = (Math.random() - 0.5) * 0.3;
-            cubeSpinVelocityZ = (Math.random() - 0.5) * 0.3;
-            
-            // Add glow effect during spin (same as hover effect)
-            cube.material.opacity = 0.8;
-            cube.material.color.setHex(0x66aaff);
-            cubeOutline.material.opacity = 1;
-            cubeOutline.material.color.setHex(0xaaccff);
-            
-            // Reset to normal after spin
-            setTimeout(() => {
-                cubeRandomSpinning = false;
-                cube.material.opacity = 0.5;
-                cube.material.color.setHex(0x4488ff);
-                cubeOutline.material.opacity = 0.8;
-                cubeOutline.material.color.setHex(0x88aaff);
-            }, cubeSpinDuration);
+            if (!cube) return;
+
+            // Always a decisive kick: a signed magnitude with a floor, so a
+            // click can never land on a near-zero velocity and look ignored.
+            const impulse = () => (Math.random() < 0.5 ? -1 : 1) * (0.12 + Math.random() * 0.16);
+
+            // Additive, so clicking again mid-spin winds it up further rather
+            // than being ignored. Capped so it cannot run away into a blur.
+            const cap = 0.45;
+            cubeVelocity.set(
+                THREE.MathUtils.clamp(cubeVelocity.x + impulse(), -cap, cap),
+                THREE.MathUtils.clamp(cubeVelocity.y + impulse(), -cap, cap),
+                THREE.MathUtils.clamp(cubeVelocity.z + impulse(), -cap, cap)
+            );
+            cubeSpinEnergy = 1;
         };
 
         // Check if gyroscope is supported and request permission
@@ -302,8 +334,9 @@ function initNav3D(container) {
             if (deltaAlpha > 180) deltaAlpha -= 360;
             if (deltaAlpha < -180) deltaAlpha += 360;
             
-            // Apply gyroscope rotation (subtle effect)
-            const gyroRotationY = deltaAlpha * gyroSensitivity.alpha + deltaGamma * gyroSensitivity.gamma;
+            // Apply gyroscope rotation (subtle effect). Negated to match the
+            // pointer: tilting toward a section brings that section forward.
+            const gyroRotationY = -(deltaAlpha * gyroSensitivity.alpha + deltaGamma * gyroSensitivity.gamma);
             const gyroRotationX = deltaBeta * gyroSensitivity.beta;
             
             // Combine with existing target rotation (mouse/touch has priority)
@@ -324,7 +357,9 @@ function initNav3D(container) {
         const interactionElement = isLarge ? document : canvasContainer;
         
         const updateRotationFromCoordinates = (x, y) => {
-            targetRotationY = x * Math.PI * 0.3;
+            // Negative: the pointer pulls the nearest arm toward the viewer, so
+            // moving right swings the RIGHT section forward instead of away.
+            targetRotationY = -x * Math.PI * 0.3;
             targetRotationX = y * Math.PI * 0.1;
             shouldAutoRotate = false;
             lastInteraction = Date.now();
@@ -348,29 +383,18 @@ function initNav3D(container) {
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObject(cube);
                 
+                // Only track the state here; the highlight itself is applied
+                // once per frame in animate() so hover and spin can't fight
+                // over the cube's colours.
                 if (intersects.length > 0) {
                     if (!isHoveringCube) {
                         isHoveringCube = true;
                         canvasContainer.style.cursor = 'pointer';
-                        // Add glow effect
-                        if (!cubeRandomSpinning) {
-                            cube.material.opacity = 0.8;
-                            cube.material.color.setHex(0x66aaff);
-                            cubeOutline.material.opacity = 1;
-                            cubeOutline.material.color.setHex(0xaaccff);
-                        }
                     }
                 } else {
                     if (isHoveringCube) {
                         isHoveringCube = false;
                         canvasContainer.style.cursor = 'default';
-                        // Remove glow effect
-                        if (!cubeRandomSpinning) {
-                            cube.material.opacity = 0.5;
-                            cube.material.color.setHex(0x4488ff);
-                            cubeOutline.material.opacity = 0.8;
-                            cubeOutline.material.color.setHex(0x88aaff);
-                        }
                     }
                 }
             }
@@ -386,8 +410,16 @@ function initNav3D(container) {
                 mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
             }
             
+            mouse.set(mouseX, mouseY);
+            pointerActive = true;
+
             checkCubeHover(mouseX, mouseY);
             updateRotationFromCoordinates(mouseX, mouseY);
+        };
+
+        // Let the cube drift back to centre once the pointer is gone
+        const handlePointerLeave = () => {
+            pointerActive = false;
         };
 
         const handleClick = (event) => {
@@ -419,6 +451,9 @@ function initNav3D(container) {
                 previousTouchY = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
             }
             
+            mouse.set(previousTouchX, previousTouchY);
+            pointerActive = true;
+
             // Check if touching cube
             checkCubeHover(previousTouchX, previousTouchY);
         };
@@ -459,6 +494,8 @@ function initNav3D(container) {
                 gyroActive = false;
             }
             
+            mouse.set(currentTouchX, currentTouchY);
+
             // Check cube hover during drag
             checkCubeHover(currentTouchX, currentTouchY);
         };
@@ -479,10 +516,14 @@ function initNav3D(container) {
             }
             
             isDragging = false;
+            pointerActive = false;
+            isHoveringCube = false;
         };
 
         // Add event listeners
         interactionElement.addEventListener('mousemove', handleMouseMove);
+        (isLarge ? document.documentElement : canvasContainer)
+            .addEventListener('mouseleave', handlePointerLeave);
         if (isMedium || isLarge) {
             canvasContainer.addEventListener('click', handleClick);
         }
@@ -503,69 +544,152 @@ function initNav3D(container) {
         // Get labels
         const labels = container.querySelectorAll('.section-label');
 
+        // Resting distance from the camera to each tip. Depth cues are measured
+        // against this, so an untouched widget looks exactly as it does now and
+        // only movement makes a section grow (nearer) or fade (further away).
+        const restDistances = triangleTips.map(tip => camera.position.distanceTo(tip));
+
+        // Fallback push direction per tip, used when a tip projects so close to
+        // the centre that its radial direction would be unstable.
+        const fallbackDirections = [
+            [0, -1], // Top
+            [1, 0],  // Right
+            [0, 1],  // Bottom
+            [-1, 0]  // Left
+        ];
+
+        // Wider than tall, matching the shape of the label boxes
+        const offsetScale = isLarge ? 1 : 0.8;
+        const padX = 60 * offsetScale;
+        const padY = 50 * offsetScale;
+
+        // Magnetic follow: a label leans toward the cursor once it comes within
+        // this radius, and eases back to its anchor as the cursor moves away.
+        // The pull is zero both at the radius edge and right on the label, so
+        // labels greet the cursor on approach without dodging out from under it.
+        const labelFollowRadius = isLarge ? 140 : 100;
+        const labelFollowStrength = isLarge ? 60 : 42; // peaks at ~0.26x
+        const labelFollow = Array.from(labels, () => ({ x: 0, y: 0 }));
+
+        const tipWorld = new THREE.Vector3();
+        const tipScreen = new THREE.Vector3();
+        const centerScreen = new THREE.Vector3();
+
         function updateLabelPositions() {
-            const tempVector = new THREE.Vector3();
+            // Keep in step with this frame's rotation rather than the last one's
+            wireframe.updateMatrixWorld();
+
             const containerRect = canvasContainer.getBoundingClientRect();
-            
+
+            centerScreen.set(0, 0, 0).project(camera);
+            const centerX = (centerScreen.x * 0.5 + 0.5) * containerRect.width;
+            const centerY = (centerScreen.y * -0.5 + 0.5) * containerRect.height;
+
+            // Cursor in the same container-pixel space as the labels
+            const pointerX = (mouse.x * 0.5 + 0.5) * containerRect.width;
+            const pointerY = (mouse.y * -0.5 + 0.5) * containerRect.height;
+
             labels.forEach((label, index) => {
                 if (index >= triangleTips.length) return;
-                
-                tempVector.copy(triangleTips[index]);
-                tempVector.applyMatrix4(wireframe.matrixWorld);
-                tempVector.project(camera);
-                
+
+                tipWorld.copy(triangleTips[index]).applyMatrix4(wireframe.matrixWorld);
+                tipScreen.copy(tipWorld).project(camera);
+
                 // Calculate position relative to the canvas container, not viewport
-                const x = (tempVector.x * 0.5 + 0.5) * containerRect.width;
-                const y = (tempVector.y * -0.5 + 0.5) * containerRect.height;
-                
-                // Smaller offsets for medium/small versions
-                let offsetX = 0, offsetY = 0;
-                const offsetScale = isLarge ? 1 : 0.8;
-                if (index === 0) offsetY = -50 * offsetScale;      // Top
-                else if (index === 1) offsetX = 60 * offsetScale;  // Right
-                else if (index === 2) offsetY = 50 * offsetScale;  // Bottom
-                else if (index === 3) offsetX = -60 * offsetScale; // Left
-                
-                label.style.left = (x + offsetX) + 'px';
-                label.style.top = (y + offsetY) + 'px';
+                const x = (tipScreen.x * 0.5 + 0.5) * containerRect.width;
+                const y = (tipScreen.y * -0.5 + 0.5) * containerRect.height;
+
+                // Push the label out along its own tip's direction so it stays
+                // clear of the wireframe at any rotation.
+                let dirX = x - centerX;
+                let dirY = y - centerY;
+                const dirLength = Math.hypot(dirX, dirY);
+                if (dirLength > 1) {
+                    dirX /= dirLength;
+                    dirY /= dirLength;
+                } else {
+                    dirX = fallbackDirections[index][0];
+                    dirY = fallbackDirections[index][1];
+                }
+
+                // > 1 when the section has swung toward the viewer, < 1 when away
+                const proximity = restDistances[index] / camera.position.distanceTo(tipWorld);
+
+                // Softened with a square root so text stays legible at the extremes
+                const depthScale = Math.min(1.22, Math.max(0.82, Math.sqrt(proximity)));
+                // Floored well above zero: these are nav links, they stay readable
+                const depthFade = Math.min(1, Math.max(0.6, 1 - (1 - proximity) * 1.6));
+
+                // Resting spot for this label, before any pull toward the cursor
+                const anchorX = x + dirX * padX;
+                const anchorY = y + dirY * padY;
+
+                let pullX = 0, pullY = 0;
+                if (pointerActive) {
+                    const toPointerX = pointerX - anchorX;
+                    const toPointerY = pointerY - anchorY;
+                    const reach = Math.hypot(toPointerX, toPointerY);
+
+                    if (reach > 0.5 && reach < labelFollowRadius) {
+                        const t = reach / labelFollowRadius;
+                        const falloff = (1 - t) * (1 - t) * (3 - 2 * (1 - t));
+                        const pull = t * falloff * labelFollowStrength;
+                        pullX = (toPointerX / reach) * pull;
+                        pullY = (toPointerY / reach) * pull;
+                    }
+                }
+
+                // Eased so the lean glides in and out rather than snapping
+                const follow = labelFollow[index];
+                follow.x += (pullX - follow.x) * 0.15;
+                follow.y += (pullY - follow.y) * 0.15;
+
+                label.style.left = (anchorX + follow.x) + 'px';
+                label.style.top = (anchorY + follow.y) + 'px';
+                label.style.setProperty('--depth-scale', depthScale.toFixed(3));
+                label.style.opacity = depthFade.toFixed(3);
+                // Nearer sections overlap further ones, staying in the label band
+                label.style.zIndex = 10 + Math.round(proximity * 10);
                 label.style.display = 'block';
-                label.style.opacity = tempVector.z < 1 ? '1' : '0.5';
             });
         }
 
         function animate() {
             requestAnimationFrame(animate);
 
-            // Handle cube rotation
+            // Handle cube rotation and highlight
             if (cube && cubeOutline) {
-                if (cubeRandomSpinning) {
-                    // Random spin animation with easing
-                    const elapsed = Date.now() - cubeSpinStartTime;
-                    const progress = Math.min(elapsed / cubeSpinDuration, 1);
-                    const easing = 1 - Math.pow(1 - progress, 3); // Ease out cubic
-                    
-                    const spinSpeed = (1 - easing);
-                    cube.rotation.x += cubeSpinVelocityX * spinSpeed;
-                    cube.rotation.y += cubeSpinVelocityY * spinSpeed;
-                    cube.rotation.z += cubeSpinVelocityZ * spinSpeed;
-                    cubeOutline.rotation.x = cube.rotation.x;
-                    cubeOutline.rotation.y = cube.rotation.y;
-                    cubeOutline.rotation.z = cube.rotation.z;
-                } else {
-                    // Normal rotation
-                    cube.rotation.x += 0.01;
-                    cube.rotation.y += 0.01;
-                    cubeOutline.rotation.x = cube.rotation.x;
-                    cubeOutline.rotation.y = cube.rotation.y;
-                }
+                // Ease the angular velocity back toward the idle drift, so a
+                // click spin winds down smoothly instead of snapping.
+                cubeVelocity.lerp(cubeIdleSpin, 0.02);
+                cube.rotation.x += cubeVelocity.x;
+                cube.rotation.y += cubeVelocity.y;
+                cube.rotation.z += cubeVelocity.z;
+                cubeOutline.rotation.copy(cube.rotation);
+
+                // Single highlight value shared by hover and spin
+                cubeSpinEnergy *= 0.98;
+                if (cubeSpinEnergy < 0.001) cubeSpinEnergy = 0;
+                const glowTarget = Math.max(cubeSpinEnergy, isHoveringCube ? 1 : 0);
+                cubeGlow += (glowTarget - cubeGlow) * 0.12;
+
+                cube.material.color.copy(cubeBaseColor).lerp(cubeHotColor, cubeGlow);
+                cube.material.emissive.copy(cubeBaseColor).multiplyScalar(0.15 + cubeGlow * 0.35);
+                cube.material.opacity = 0.55 + cubeGlow * 0.3;
+                cubeOutline.material.color.copy(outlineBaseColor).lerp(outlineHotColor, cubeGlow);
+                cubeOutline.material.opacity = 0.8 + cubeGlow * 0.2;
             }
 
             if (shouldAutoRotate && Date.now() - lastInteraction > 2000 && !gyroActive) {
-                wireframe.rotation.y += 0.005;
-                points.rotation.y += 0.005;
-            } else if (!shouldAutoRotate || Date.now() - lastInteraction <= 2000 || gyroActive) {
-                wireframe.rotation.y += (targetRotationY - wireframe.rotation.y) * 0.05;
-                wireframe.rotation.x += (targetRotationX - wireframe.rotation.x) * 0.05;
+                // Wrapped each frame, so however long it idles the angle stays
+                // in (-PI, PI] and there is never a pile of turns to undo.
+                wireframe.rotation.y = wrapAngle(wireframe.rotation.y + 0.005);
+                points.rotation.y = wireframe.rotation.y;
+            } else {
+                // Settle toward the pointer by the shortest arc: at most half a
+                // turn, from wherever the idle spin left it.
+                wireframe.rotation.y += shortestAngleTo(wireframe.rotation.y, targetRotationY) * 0.05;
+                wireframe.rotation.x += shortestAngleTo(wireframe.rotation.x, targetRotationX) * 0.05;
                 points.rotation.y = wireframe.rotation.y;
                 points.rotation.x = wireframe.rotation.x;
             }

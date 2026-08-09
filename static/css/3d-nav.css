@@ -62,13 +62,18 @@
     letter-spacing: 0.1em;
     color: rgba(255,255,255,0.9);
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* Position, opacity and scale are driven per-frame by the 3D projection, so
+       they must not be transitioned or the labels lag behind the wireframe. */
+    transition: color 0.3s ease, background 0.3s ease,
+                border-color 0.3s ease, text-shadow 0.3s ease;
     text-decoration: none;
     z-index: 10;
     text-align: center;
     pointer-events: all;
     white-space: nowrap;
-    transform: translate(-50%, -50%);
+    /* --depth-scale is set by 3d-nav.js: sections rotated toward the viewer
+       grow, sections rotated away shrink. */
+    transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
     display: block;
     border-radius: 3px;
     background: rgba(0,0,0,0.7);
@@ -92,13 +97,13 @@
 
 .nav-3d-container .section-label:hover {
     color: #fff;
-    transform: translate(-50%, -50%) scale(1.1);
+    transform: translate(-50%, -50%) scale(calc(var(--depth-scale, 1) * 1.1));
     text-shadow: 0 0 10px rgba(255,255,255,0.8);
     background: rgba(0,0,0,0.5);
 }
 
 .nav-3d-container .section-label:active {
-    transform: translate(-50%, -50%) scale(0.95);
+    transform: translate(-50%, -50%) scale(calc(var(--depth-scale, 1) * 0.95));
 }
 
 .nav-3d-container .instructions {
