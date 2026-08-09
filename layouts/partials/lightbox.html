@@ -1,0 +1,17 @@
+{{- /* Shared by the roll shelf and the individual roll pages. Driven by
+       /js/photo-lightbox.js, which reads the frames of whichever
+       [data-lightbox-group] the clicked frame belongs to. */ -}}
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
+    <div class="lightbox-content">
+        <button type="button" class="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-image" src="" alt="">
+        <div class="lightbox-nav">
+            <button type="button" class="lightbox-prev" aria-label="Previous frame">&#10094;</button>
+            <button type="button" class="lightbox-next" aria-label="Next frame">&#10095;</button>
+        </div>
+        <div class="lightbox-info">
+            <span id="lightbox-counter"></span>
+            <span id="lightbox-title"></span>
+        </div>
+    </div>
+</div>

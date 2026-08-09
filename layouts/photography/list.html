@@ -1,0 +1,107 @@
+{{- define "title" -}}{{ .Title }}{{- end -}}
+
+{{- define "main" -}}
+{{- $showEmpty := true -}}
+{{- with .Site.Params.photography -}}
+    {{- if isset . "showemptyrolls" -}}{{ $showEmpty = .showEmptyRolls }}{{- end -}}
+{{- end -}}
+
+{{- $rolls := slice -}}
+{{- range sort .Pages "Params.roll" "desc" -}}
+    {{- if or (gt (len (.Resources.ByType "image")) 0) $showEmpty -}}
+        {{- $rolls = $rolls | append . -}}
+    {{- end -}}
+{{- end -}}
+
+<div class="photography-container">
+    {{- /* The 3D nav is rendered once by baseof, above <main>. */ -}}
+    <header class="photography-header">
+        <h1>{{ .Title | default "Photography" }}</h1>
+        {{- with .Params.description }}
+        <p class="photography-description">{{ . }}</p>
+        {{- end }}
+    </header>
+
+    {{- if $rolls }}
+    {{- /* A fixed selection axis across the middle: the canister column slides
+           behind it to pick a roll, and that roll's film unrolls to the right. */ -}}
+    <div class="xmb" id="rollfilm" style="--active: 0">
+        <div class="xmb-axis" aria-hidden="true"></div>
+
+        <div class="xmb-rail">
+            <div class="xmb-column" id="shelf-rail" role="tablist"
+                 aria-label="Film rolls" aria-orientation="vertical">
+                {{- range $index, $roll := $rolls -}}
+                {{- $slug := path.Base $roll.File.Dir -}}
+                {{- $count := len ($roll.Resources.ByType "image") -}}
+                <button type="button" class="canister" role="tab"
+                        id="tab-{{ $slug }}"
+                        data-roll="{{ $slug }}"
+                        data-index="{{ $index }}"
+                        aria-controls="sheet-{{ $slug }}"
+                        aria-selected="{{ if eq $index 0 }}true{{ else }}false{{ end }}"
+                        tabindex="{{ if eq $index 0 }}0{{ else }}-1{{ end }}"
+                        style="--roll: {{ $roll.Params.roll | default 0 }}">
+                    <span class="canister-spool" aria-hidden="true"></span>
+                    <span class="canister-body" aria-hidden="true">
+                        <span class="canister-label">
+                            <span class="canister-no">{{ replaceRE `^Roll\s*` "" $roll.Title }}</span>
+                            <span class="canister-stock">{{ with $roll.Params.film }}{{ . }}{{ else }}35 mm{{ end }}</span>
+                        </span>
+                    </span>
+                    <span class="canister-count">{{ if $count }}{{ $count }} frames{{ else }}empty{{ end }}</span>
+                </button>
+                {{- end -}}
+            </div>
+        </div>
+
+        <div class="xmb-stage">
+            {{- range $index, $roll := $rolls -}}
+            {{- $slug := path.Base $roll.File.Dir -}}
+            {{- $count := len ($roll.Resources.ByType "image") -}}
+            <section class="sheet" id="sheet-{{ $slug }}" role="tabpanel"
+                     aria-labelledby="tab-{{ $slug }}"
+                     data-roll="{{ $slug }}"
+                     {{ if ne $index 0 }}hidden{{ end }}>
+                <div class="sheet-head">
+                    <h2 class="sheet-title">{{ $roll.Title }}</h2>
+                    <div class="sheet-facts">
+                        {{- if not $roll.Date.IsZero -}}
+                        <span><time datetime="{{ $roll.Date.Format "2006-01-02" }}">{{ $roll.Date.Format "January 2, 2006" }}</time></span>
+                        {{- end -}}
+                        {{- with $roll.Params.film }}<span>{{ . }}</span>{{ end -}}
+                        {{- with $roll.Params.camera }}<span>{{ . }}</span>{{ end -}}
+                        {{- with $roll.Params.description }}<span>{{ . }}</span>{{ end -}}
+                        <a class="sheet-permalink" href="{{ $roll.RelPermalink }}">Roll page &#8594;</a>
+                    </div>
+                </div>
+
+                {{- if $count }}
+                {{- partial "filmstrip.html" $roll -}}
+                {{- else }}
+                <p class="sheet-empty">
+                    Nothing developed yet. Drop the scans into
+                    <code>content/photography/{{ $slug }}/</code>.
+                </p>
+                {{- end }}
+            </section>
+            {{- end -}}
+        </div>
+
+        <p class="xmb-hint" aria-hidden="true">
+            <span>&#8597; roll</span><span>&#8596; frames</span>
+        </p>
+    </div>
+    {{- else }}
+    <div class="no-photos">
+        <p>No rolls yet. Add a folder under <code>content/photography/</code> with an <code>index.md</code> and drop the roll's scans beside it.</p>
+    </div>
+    {{- end }}
+
+    {{- partial "lightbox.html" . -}}
+</div>
+
+<script src="{{ "/js/photo-rolls.js" | relURL }}" defer></script>
+<script src="{{ "/js/photo-strip.js" | relURL }}" defer></script>
+<script src="{{ "/js/photo-lightbox.js" | relURL }}" defer></script>
+{{- end -}}

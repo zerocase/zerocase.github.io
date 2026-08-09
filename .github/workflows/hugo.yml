@@ -46,6 +46,16 @@ jobs:
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
+      - name: Cache processed images
+        uses: actions/cache@v4
+        with:
+          # Photography thumbnails are generated from the roll bundles; without
+          # this every push re-encodes every frame from scratch.
+          path: |
+            ${{ runner.temp }}/hugo_cache
+            resources
+          key: hugo-resources-${{ hashFiles('content/photography/**/*.JPG', 'content/photography/**/*.jpg') }}
+          restore-keys: hugo-resources-
       - name: Install Node.js dependencies
         run: "[[ -f package-lock.json || -f npm-shrinkwrap.json ]] && npm ci || true"
       - name: Build with Hugo

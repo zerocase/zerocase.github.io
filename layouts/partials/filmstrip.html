@@ -1,0 +1,56 @@
+{{- /* One roll as a single continuous strip of film running off to the right.
+
+       The sprocket bands live on the strip rather than on each frame, so the
+       film reads as one unbroken length however many frames are on it, and a
+       tapered leader joins it back to the cassette it came out of.
+
+       Context: a page (the roll bundle). */ -}}
+{{- $images := sort (.Resources.ByType "image") "Name" -}}
+
+{{- /* When was the frame made?
+       1. The roll's own `date` — on a film scan this is the only thing that
+          knows when the shutter actually fired, so an explicit date wins.
+       2. Otherwise the image's EXIF date. On lab scans that is the scanner's
+          clock (a Noritsu stamps the digitising time), so it is a fallback.
+       File modification times are never used: they only record when the file
+       was last copied around. */ -}}
+{{- $rollDate := "" -}}
+{{- if not .Date.IsZero -}}{{ $rollDate = .Date.Format "January 2, 2006" }}{{- end -}}
+
+<div class="sheet-film">
+    <span class="strip-leader" aria-hidden="true"></span>
+
+    <div class="strip" data-lightbox-group tabindex="0" role="group"
+         aria-label="{{ .Title }} — {{ len $images }} frames, scroll or use the arrow keys">
+        <div class="strip-film">
+            {{- range $index, $img := $images -}}
+                {{- $created := $rollDate -}}
+                {{- if eq $created "" -}}
+                    {{- with $img.Exif -}}
+                        {{- if not .Date.IsZero -}}{{ $created = .Date.Format "January 2, 2006" }}{{- end -}}
+                    {{- end -}}
+                {{- end -}}
+                {{- $thumb := $img.Fill "600x400 Center q80" -}}
+                {{- $full := $img -}}
+                {{- if gt $img.Width 1800 -}}{{ $full = $img.Resize "1800x q88" }}{{- end -}}
+                {{- $label := printf "Frame %d of %d" (add $index 1) (len $images) -}}
+            <button type="button" class="frame" style="--i: {{ $index }}"
+                    data-full="{{ $full.RelPermalink }}"
+                    data-created="{{ $created }}"
+                    data-name="{{ $label }}"
+                    aria-label="{{ $label }}{{ with $created }} — {{ . }}{{ end }}">
+                <span class="frame-window">
+                    <img src="{{ $thumb.RelPermalink }}"
+                         width="{{ $thumb.Width }}" height="{{ $thumb.Height }}"
+                         alt="{{ $label }}" loading="lazy" decoding="async">
+                </span>
+                <span class="frame-no">{{ add $index 1 }}A</span>
+            </button>
+            {{- end -}}
+            <span class="strip-tail" aria-hidden="true"></span>
+        </div>
+    </div>
+
+    <button type="button" class="film-nav film-prev" aria-label="Previous frames" disabled>&#10094;</button>
+    <button type="button" class="film-nav film-next" aria-label="Next frames">&#10095;</button>
+</div>

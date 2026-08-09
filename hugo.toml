@@ -7,6 +7,12 @@ theme = 'lugo'
 [params]
   tagline = "Artist & Creator"
 
+  [params.photography]
+    # Only rolls that actually have scans appear on the shelf. The empty roll
+    # folders stay in content/photography/ ready to fill — flip this to true to
+    # see them on the page while you are working.
+    showEmptyRolls = false
+
 [menu]
   [[menu.main]]
     name = "Photography"

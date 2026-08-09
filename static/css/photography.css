@@ -1,0 +1,1005 @@
+/* ==========================================================================
+   Photography
+
+   /photography/          an XMB-style shelf: a column of film canisters on a
+                          fixed selection axis, and the selected roll's film
+                          unrolling to the right — all on the one page
+   /photography/roll-NN/  the same strip on its own permalink page
+   ========================================================================== */
+
+:root {
+    --film-base: #0b0b0d;
+    --film-edge: #cfcfd8;
+    --film-mark: #e8b04b;
+    --accent: #64ffda;
+    /* A 35mm cassette is graphite and paper, not a colour swatch — the only
+       colour on the shelf comes from the photographs. */
+    --cassette-dark: #07070a;
+    --cassette-mid: #2b2b32;
+    --cassette-hi: #4c4c56;
+    --label-paper: #e7e4dc;
+    --label-ink: #17171b;
+
+    /* Film dimensions. These belong to the strip, not to the shelf, so the roll
+       permalink pages (which have no .xmb around them) size their film too. */
+    --frame-h: clamp(7rem, 23vh, 13rem);
+    /* The strip is the frame plus its two sprocket bands; the cassette matches
+       that height exactly so the film reads as coming straight out of it. */
+    --strip-h: calc(var(--frame-h) + 2.2rem);
+    --can-h: var(--strip-h);
+    --can-w: calc(var(--strip-h) * 0.72);
+    --leader-w: 4.5rem;
+}
+
+/* The gradient lives on <body> so the 3D nav baseof renders above <main> sits
+   on the same backdrop as everything below it. */
+body.type-photography {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
+    background-attachment: fixed;
+}
+
+/* The photography pages carry their own titled header, so drop the plain one
+   baseof injects. Scoped to `main > header` so it never reaches the gradient
+   <h1> inside .photography-header. */
+.type-photography main > header {
+    display: none;
+}
+
+/* The nav keeps its normal size here, but its 400px box is mostly empty space
+   below the cube — reclaim that so the selection axis lands near the middle of
+   the screen instead of near the bottom. Only above the mobile breakpoint: the
+   nav is sized off viewport width below it and the overlap would hit the title. */
+.type-photography .content-nav-container {
+    margin: 0 auto;
+    padding: 0;
+}
+
+@media (min-width: 861px) {
+    .type-photography .content-nav-container {
+        margin: -1rem auto -7rem;
+    }
+}
+
+.photography-container {
+    min-height: 100vh;
+    width: 100%;
+    padding: 2rem;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.photography-header {
+    text-align: center;
+    padding: 0.5rem 2rem 1.25rem;
+    color: white;
+}
+
+/* The shelf page sizes itself to the viewport instead of the usual 100vh
+   minimum, so the film is not left hanging off the bottom of the screen. */
+.photography-container:has(.xmb) {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* It runs its header tighter too — every pixel above the shelf pushes the
+   selection axis further down the screen. */
+.photography-container:has(.xmb) .photography-header {
+    padding: 0.25rem 2rem 0.75rem;
+}
+
+.photography-container:has(.xmb) .photography-header h1 {
+    font-size: 2.4rem;
+    margin-bottom: 0.4rem;
+}
+
+.photography-container:has(.xmb) .photography-description {
+    font-size: 0.95rem;
+}
+
+.photography-header h1 {
+    font-size: 3.5rem;
+    font-weight: 300;
+    letter-spacing: 0.2em;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    background: linear-gradient(45deg, #64ffda, #1de9b6, #00bcd4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.photography-description {
+    font-size: 1.2rem;
+    opacity: 0.8;
+    max-width: 800px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   The shelf, XMB style
+
+   A fixed selection axis runs across the middle of the stage. The canister
+   column slides vertically behind it — whichever canister is on the axis is
+   the selected roll — and that roll's film unrolls to the right of it,
+   running off the edge of the screen.
+   -------------------------------------------------------------------------- */
+
+.xmb {
+    --pitch: calc(var(--can-h) + 4.25rem);
+    --rail-width: calc(var(--can-w) + 1.5rem);
+    --rail-left: 2rem;
+    --stage-h: clamp(22rem, calc(100vh - 29rem), 40rem);
+    position: relative;
+    height: var(--stage-h);
+    margin: 0 auto;
+    overflow: hidden;
+}
+
+.xmb:focus {
+    outline: none;
+}
+
+.xmb:focus-visible {
+    outline: 1px solid rgba(100, 255, 218, 0.4);
+    outline-offset: -1px;
+}
+
+/* The selection axis. */
+.xmb-axis {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: calc(var(--strip-h) + 1rem);
+    transform: translateY(-50%);
+    pointer-events: none;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(100, 255, 218, 0.055) 6%,
+        rgba(100, 255, 218, 0.02) 40%,
+        transparent 100%);
+}
+
+/* --- the column of canisters ---------------------------------------------- */
+
+.xmb-rail {
+    position: absolute;
+    left: var(--rail-left);
+    top: 0;
+    bottom: 0;
+    width: var(--rail-width);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scroll-snap-type: y mandatory;
+    overscroll-behavior-y: contain;
+    scrollbar-width: none;
+    /* Half a stage of padding at each end so the first and last canister can
+       still reach the axis. */
+    padding-block: calc(var(--stage-h) / 2 - var(--pitch) / 2);
+    z-index: 2;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 76%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 24%, #000 76%, transparent);
+}
+
+.xmb-rail::-webkit-scrollbar {
+    display: none;
+}
+
+.xmb-rail:focus-visible {
+    outline: 1px solid rgba(100, 255, 218, 0.4);
+    outline-offset: -2px;
+}
+
+.canister {
+    scroll-snap-align: center;
+    /* The spool tab sits proud of the body, so pull the stack together. */
+    gap: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: var(--pitch);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+    opacity: 0.3;
+    filter: brightness(0.55);
+    transform: scale(0.85);
+    transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.22, 0.8, 0.24, 1), filter 0.4s ease;
+}
+
+.canister:hover {
+    opacity: 0.65;
+    filter: brightness(0.8);
+}
+
+.canister[aria-selected="true"] {
+    opacity: 1;
+    filter: none;
+    transform: scale(1);
+}
+
+/* The spool spindle poking out of the top. */
+.canister-spool {
+    flex: 0 0 auto;
+    width: 2.4rem;
+    height: 0.9rem;
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(90deg, #17171b, #55555f 30%, #8d8d9b 48%, #43434c 72%, #131317);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* The cassette body: portrait, lit like a cylinder — dark at both edges with
+   one soft highlight left of centre. */
+.canister-body {
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--can-w);
+    height: var(--can-h);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: linear-gradient(90deg,
+        var(--cassette-dark) 0%,
+        var(--cassette-mid) 16%,
+        var(--cassette-hi) 34%,
+        var(--cassette-mid) 58%,
+        #131318 82%,
+        var(--cassette-dark) 100%);
+    box-shadow:
+        0 12px 34px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.6);
+    transition: box-shadow 0.4s ease;
+}
+
+/* The felt-trap lips across the top and bottom of the shell. */
+.canister-body::before,
+.canister-body::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0.5rem;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+}
+
+.canister-body::after {
+    bottom: 0;
+    transform: scaleY(-1);
+}
+
+.canister[aria-selected="true"] .canister-body {
+    box-shadow:
+        0 16px 46px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(100, 255, 218, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* The paper label, curving with the shell. */
+.canister-label {
+    position: absolute;
+    top: 1.1rem;
+    right: 0.5rem;
+    bottom: 1.1rem;
+    left: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    color: var(--label-ink);
+    background: linear-gradient(90deg,
+        #9e9c94 0%,
+        #cfccc3 12%,
+        var(--label-paper) 36%,
+        #dedad1 62%,
+        #a9a69e 86%,
+        #86847d 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.canister-no {
+    font-size: clamp(1.5rem, 5.5vh, 2.4rem);
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+.canister-stock {
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0.65;
+    max-width: 88%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.canister-count {
+    margin-top: 0.55rem;
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    opacity: 0.75;
+}
+
+/* --- the film running off to the right ------------------------------------ */
+
+.xmb-stage {
+    position: absolute;
+    left: calc(var(--rail-left) + var(--rail-width) - 0.5rem);
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 0;
+}
+
+.sheet[hidden] {
+    display: none;
+}
+
+.sheet {
+    position: relative;
+}
+
+.sheet-head {
+    position: absolute;
+    bottom: 100%;
+    left: var(--leader-w);
+    right: 0;
+    padding-bottom: 0.85rem;
+}
+
+.sheet-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 300;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+
+.sheet-facts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 1.1rem;
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    opacity: 0.85;
+}
+
+.sheet-permalink {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.sheet-permalink:hover {
+    color: var(--accent);
+    text-shadow: none;
+}
+
+.sheet-empty {
+    padding: 2rem 0;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.sheet-empty code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.2rem 0.5rem;
+    font-family: 'Courier New', monospace;
+}
+
+/* The film emerges from the cassette: a tapered leader bridges the gap, then
+   the strip proper carries on past the edge of the screen. */
+.sheet-film {
+    position: relative;
+    padding-left: var(--leader-w);
+}
+
+.strip-leader {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: calc(var(--leader-w) + 1px);
+    background:
+        repeating-linear-gradient(90deg,
+            var(--film-edge) 0 0.55rem, transparent 0.55rem 1.3rem) top 0.34rem left 0 / 100% 0.42rem repeat-x,
+        repeating-linear-gradient(90deg,
+            var(--film-edge) 0 0.55rem, transparent 0.55rem 1.3rem) bottom 0.34rem left 0 / 100% 0.42rem repeat-x,
+        var(--film-base);
+    opacity: 0.95;
+    /* The angled cut of a real leader: a narrow tongue at the cassette that
+       opens out to the full width of the film. */
+    clip-path: polygon(0 46%, 42% 46%, 100% 0, 100% 100%, 0 100%);
+    pointer-events: none;
+}
+
+.strip {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    cursor: grab;
+    overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(to right, #000 82%, transparent 100%);
+    mask-image: linear-gradient(to right, #000 82%, transparent 100%);
+}
+
+.strip::-webkit-scrollbar {
+    display: none;
+}
+
+.strip.is-dragging {
+    cursor: grabbing;
+}
+
+.strip.is-dragging .frame {
+    pointer-events: none;
+}
+
+.strip:focus {
+    outline: none;
+}
+
+.strip:focus-visible {
+    outline: 1px solid rgba(100, 255, 218, 0.5);
+    outline-offset: 3px;
+}
+
+.strip-film {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    width: max-content;
+    padding: 1.1rem 0;
+    background: var(--film-base);
+}
+
+/* Sprocket bands, running the full length of the strip. */
+.strip-film::before,
+.strip-film::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0.42rem;
+    background-image: repeating-linear-gradient(90deg,
+        var(--film-edge) 0 0.55rem,
+        transparent 0.55rem 1.3rem);
+    opacity: 0.72;
+}
+
+.strip-film::before { top: 0.34rem; }
+.strip-film::after  { bottom: 0.34rem; }
+
+.frame {
+    position: relative;
+    flex: 0 0 auto;
+    display: block;
+    padding: 0 0.3rem;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+
+.frame-window {
+    display: block;
+    position: relative;
+    height: var(--frame-h);
+    width: calc(var(--frame-h) * 1.5);
+    overflow: hidden;
+    background: #000;
+}
+
+.frame-window img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+}
+
+.frame:hover .frame-window img,
+.frame:focus-visible .frame-window img {
+    transform: scale(1.06);
+}
+
+.frame:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
+/* Frame number printed on the film edge, the way a lab numbers a roll. */
+.frame-no {
+    position: absolute;
+    left: 0.55rem;
+    bottom: -0.95rem;
+    font-size: 0.5rem;
+    letter-spacing: 0.08em;
+    color: var(--film-mark);
+    opacity: 0.9;
+}
+
+/* Prev / next along the film. */
+.film-nav {
+    position: absolute;
+    top: 50%;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    margin-top: -1.3rem;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(10, 10, 14, 0.72);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+    opacity: 0.6;
+    transition: opacity 0.25s ease, background 0.25s ease, transform 0.25s ease;
+}
+
+.sheet-film:hover .film-nav,
+.film-nav:focus-visible {
+    opacity: 1;
+}
+
+.film-nav:hover {
+    background: rgba(100, 255, 218, 0.85);
+    color: #06121017;
+    color: #061210;
+    transform: scale(1.08);
+}
+
+.film-nav[disabled] {
+    opacity: 0.15;
+    cursor: default;
+    pointer-events: none;
+}
+
+.film-prev { left: calc(var(--leader-w) + 0.6rem); }
+.film-next { right: 1.2rem; }
+
+/* A short run of blank film after the last frame, so the sprockets run out
+   cleanly instead of the strip stopping mid-frame. */
+.strip-tail {
+    flex: 0 0 auto;
+    width: 4rem;
+}
+
+/* The unroll: film pulled out of the canister, left to right. */
+@keyframes unroll {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes frame-in {
+    from { opacity: 0; transform: translateX(-1.5rem); }
+    to   { opacity: 1; transform: none; }
+}
+
+.sheet.is-unrolling .strip-film {
+    animation: unroll 0.75s cubic-bezier(0.16, 0.9, 0.24, 1);
+}
+
+.sheet.is-unrolling .frame {
+    animation: frame-in 0.5s ease backwards;
+    /* Capped so a 36-frame roll does not take a second and a half to finish. */
+    animation-delay: calc(min(var(--i), 14) * 45ms);
+}
+
+.sheet.is-unrolling .sheet-head {
+    animation: frame-in 0.45s ease backwards;
+}
+
+.xmb-hint {
+    position: absolute;
+    right: 1.5rem;
+    bottom: 0.75rem;
+    display: flex;
+    gap: 1.25rem;
+    margin: 0;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.28);
+    pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Roll permalink page
+   -------------------------------------------------------------------------- */
+
+.roll-header {
+    position: relative;
+}
+
+.roll-back {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.roll-back:hover {
+    color: var(--accent);
+    text-shadow: none;
+}
+
+.roll-facts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    opacity: 0.85;
+}
+
+.roll-body {
+    max-width: 800px;
+    margin: 1.5rem auto 0;
+    line-height: 1.6;
+    opacity: 0.8;
+    text-align: left;
+}
+
+.sheet-solo {
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+.roll-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 3rem 1rem 4rem;
+    font-size: 0.9rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    box-sizing: border-box;
+}
+
+.roll-nav a {
+    color: rgba(255, 255, 255, 0.65);
+    padding: 0.6rem 0;
+}
+
+.roll-nav a:hover {
+    color: var(--accent);
+    text-shadow: none;
+}
+
+.roll-nav-all {
+    opacity: 0.5;
+}
+
+/* --------------------------------------------------------------------------
+   Empty state
+   -------------------------------------------------------------------------- */
+
+.no-photos {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.no-photos code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+}
+
+/* --------------------------------------------------------------------------
+   Lightbox
+   -------------------------------------------------------------------------- */
+
+.lightbox {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+}
+
+.lightbox.is-open {
+    display: flex;
+}
+
+.lightbox-content {
+    position: relative;
+    max-width: 95vw;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: -60px;
+    right: 0;
+    font-size: 2rem;
+    line-height: 1;
+    color: white;
+    cursor: pointer;
+    border: 0;
+    background: rgba(255, 255, 255, 0.1);
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    z-index: 1001;
+}
+
+.lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+#lightbox-image {
+    max-width: 100%;
+    max-height: 85vh;
+    object-fit: contain;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-nav {
+    position: absolute;
+    top: 50%;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    transform: translateY(-50%);
+    pointer-events: none;
+    padding: 0 2rem;
+}
+
+.lightbox-prev,
+.lightbox-next {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    padding: 1rem;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    pointer-events: all;
+    backdrop-filter: blur(10px);
+    z-index: 1001;
+}
+
+.lightbox-prev:hover,
+.lightbox-next:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.lightbox-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 2rem;
+    color: white;
+}
+
+#lightbox-counter {
+    font-size: 0.9rem;
+    opacity: 0.7;
+}
+
+#lightbox-title {
+    font-size: 1.2rem;
+    font-weight: 400;
+    color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+
+/* Narrower screens get a slightly shorter frame, which pulls the cassette down
+   with it — every other size is derived, so nothing is hard-coded here. */
+@media (max-width: 1100px) {
+    :root {
+        --frame-h: clamp(6rem, 19vh, 10rem);
+    }
+
+    .xmb {
+        --rail-left: 1rem;
+    }
+}
+
+/* Below this the column lies down: cassettes run across the top, film below.
+   Every size is re-derived rather than hard-coded, so the cassette still
+   matches the height of the film it feeds. */
+@media (max-width: 860px) {
+    :root {
+        --frame-h: clamp(6rem, 35vw, 11rem);
+        --leader-w: 2.25rem;
+    }
+
+    .xmb {
+        height: auto;
+        overflow: visible;
+    }
+
+    .xmb-axis,
+    .xmb-hint {
+        display: none;
+    }
+
+    .xmb-rail {
+        position: static;
+        width: auto;
+        height: auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        padding-block: 0.5rem;
+        -webkit-mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+        mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+    }
+
+    .xmb-column {
+        display: flex;
+        align-items: flex-start;
+        gap: 1.25rem;
+        /* max-content, or the column takes the rail's width and its padding
+           collapses inwards instead of extending the scrollable area. */
+        width: max-content;
+        /* Half a screen of padding at each end so the first and last cassette
+           can still reach the middle. */
+        padding-inline: calc(50vw - var(--can-w) / 2 - 1rem);
+    }
+
+    .canister {
+        flex: 0 0 auto;
+        width: var(--can-w);
+        height: auto;
+        transform: scale(0.9);
+    }
+
+    .canister[aria-selected="true"] {
+        transform: scale(1);
+    }
+
+    .xmb-stage {
+        position: static;
+        transform: none;
+        margin-top: 1.5rem;
+    }
+
+    /* The head goes back into the flow — there is no axis to hang it off. */
+    .sheet-head {
+        position: static;
+        padding: 0 0 0.75rem var(--leader-w);
+    }
+
+    .strip {
+        -webkit-mask-image: none;
+        mask-image: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .photography-container,
+    .photography-container:has(.xmb) {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        /* Nothing on this page is meant to scroll the page sideways. */
+        overflow-x: hidden;
+    }
+
+    .photography-header,
+    .photography-container:has(.xmb) .photography-header {
+        padding: 0.25rem 0.5rem 1rem;
+    }
+
+    .photography-header h1,
+    .photography-container:has(.xmb) .photography-header h1 {
+        font-size: 1.7rem;
+        letter-spacing: 0.13em;
+        margin-bottom: 0.4rem;
+    }
+
+    .photography-description,
+    .photography-container:has(.xmb) .photography-description {
+        font-size: 0.9rem;
+    }
+
+    .sheet-title {
+        font-size: 1.15rem;
+        letter-spacing: 0.16em;
+    }
+
+    .roll-facts,
+    .sheet-facts {
+        gap: 0.85rem;
+        font-size: 0.78rem;
+    }
+
+    .roll-nav {
+        font-size: 0.75rem;
+        padding: 2rem 0 3rem;
+    }
+
+    .lightbox-nav {
+        padding: 0 0.5rem;
+    }
+
+    .lightbox-prev,
+    .lightbox-next {
+        padding: 0.8rem;
+        font-size: 1.2rem;
+    }
+
+    .lightbox-close {
+        top: -52px;
+        width: 42px;
+        height: 42px;
+        font-size: 1.6rem;
+    }
+}
+
+/* Touch: the film pans with a finger, so buttons would only cover the picture. */
+@media (max-width: 860px) {
+    .film-nav {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sheet.is-unrolling .frame,
+    .sheet.is-unrolling .strip-film,
+    .sheet.is-unrolling .sheet-head {
+        animation: none;
+    }
+
+    .canister,
+    .canister-body,
+    .frame,
+    .frame-window img {
+        transition: none;
+    }
+}

@@ -1,12 +1,11 @@
 ---
 title: "Photography"
-description: "Capturing moments through the lens - a collection of my visual journey"
-layout: "section"
+description: "Shot on film. Pick a roll off the shelf and it unrolls."
 type: "photography"
+cascade:
+  # The roll pages carry their own navigation; keep the theme's footer bits off.
+  nextprev: false
+  taglist: false
 ---
 
-Welcome to my photography collection!
-
-# Photography Portfolio
-
-Welcome to my photography collection. Each image tells a story, captures a moment, or explores the beauty in everyday life. New photos are automatically added to the top of the gallery when uploaded to the photography folder.
+Every canister is one roll of film. Scroll the shelf to pick one and it unrolls beside it.

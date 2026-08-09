@@ -6,6 +6,7 @@
 <link rel='alternate' type='application/rss+xml' title="{{ .Site.Title }} RSS" href='/index.xml'>
 <link rel='stylesheet' type='text/css' href='/style.css'>
 <link rel='stylesheet' type='text/css' href='/css/blog.css'>
+<link rel='stylesheet' type='text/css' href='/css/photography.css'>
 <!-- 3D Navigation CSS -->
 <link rel='stylesheet' type='text/css' href='/css/3d-nav.css'>
  {{ with .Site.Params.favicon }}<link rel="icon" href="{{ . }}">
@@ -24,7 +25,7 @@
 }
 </style>
 </head>
-<body>
+<body class="type-{{ .Type }}">
 {{ if .IsHome }}
 {{ block "main" . }}{{ end }}
 {{ else }}

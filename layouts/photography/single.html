@@ -1,0 +1,69 @@
+{{- define "title" -}}{{ .Title }}{{- end -}}
+
+{{- define "main" -}}
+{{- $count := len (.Resources.ByType "image") -}}
+
+<div class="photography-container">
+    {{- /* The 3D nav is rendered once by baseof, above <main>. */ -}}
+    <header class="photography-header roll-header">
+        <a class="roll-back" href="{{ "/photography/" | relURL }}">&#8592; All rolls</a>
+        <h1>{{ .Title }}</h1>
+        <div class="roll-facts">
+            {{- if not .Date.IsZero -}}
+            <span><time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "January 2, 2006" }}</time></span>
+            {{- end -}}
+            {{- with .Params.film }}<span>{{ . }}</span>{{ end -}}
+            {{- with .Params.camera }}<span>{{ . }}</span>{{ end -}}
+            <span>{{ $count }} {{ if eq $count 1 }}frame{{ else }}frames{{ end }}</span>
+        </div>
+        {{- with .Params.description }}
+        <p class="photography-description">{{ . }}</p>
+        {{- end }}
+        {{- with .Content }}<div class="roll-body">{{ . }}</div>{{ end }}
+    </header>
+
+    {{- if $count }}
+    <div class="sheet sheet-solo">
+        {{- partial "filmstrip.html" . -}}
+    </div>
+    {{- else }}
+    <div class="no-photos">
+        <p>This roll has no scans yet. Drop the photos into <code>content/photography/{{ path.Base .File.Dir }}/</code> and they will show up here.</p>
+    </div>
+    {{- end }}
+
+    {{- /* Roll-to-roll navigation, ordered by roll number rather than by date,
+           since not every roll has a date on it yet. Skips the rolls the shelf
+           skips, so prev/next never lands on an empty one. */ -}}
+    {{- $showEmpty := true -}}
+    {{- with .Site.Params.photography -}}
+        {{- if isset . "showemptyrolls" -}}{{ $showEmpty = .showEmptyRolls }}{{- end -}}
+    {{- end -}}
+    {{- $siblings := slice -}}
+    {{- range sort .CurrentSection.Pages "Params.roll" "desc" -}}
+        {{- if or (gt (len (.Resources.ByType "image")) 0) $showEmpty -}}
+            {{- $siblings = $siblings | append . -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $position := -1 -}}
+    {{- range $i, $p := $siblings -}}
+        {{- if eq $p.RelPermalink $.RelPermalink -}}{{ $position = $i }}{{- end -}}
+    {{- end -}}
+    <nav class="roll-nav">
+        {{- if gt $position 0 -}}
+            {{- $newer := index $siblings (sub $position 1) -}}
+        <a class="roll-nav-prev" href="{{ $newer.RelPermalink }}">&#8592; {{ $newer.Title }}</a>
+        {{- else -}}<span></span>{{- end -}}
+        <a class="roll-nav-all" href="{{ "/photography/" | relURL }}">All rolls</a>
+        {{- if and (ge $position 0) (lt $position (sub (len $siblings) 1)) -}}
+            {{- $older := index $siblings (add $position 1) -}}
+        <a class="roll-nav-next" href="{{ $older.RelPermalink }}">{{ $older.Title }} &#8594;</a>
+        {{- else -}}<span></span>{{- end -}}
+    </nav>
+
+    {{- partial "lightbox.html" . -}}
+</div>
+
+<script src="{{ "/js/photo-strip.js" | relURL }}" defer></script>
+<script src="{{ "/js/photo-lightbox.js" | relURL }}" defer></script>
+{{- end -}}
