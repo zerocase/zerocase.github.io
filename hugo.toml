@@ -1,4 +1,4 @@
-baseURL = 'https://zerocase.github.io/'
+baseURL = 'https://zerocase.xyz/'
 languageCode = 'en-us'
 title = 'zerocase.xyz'
 theme = 'lugo'
